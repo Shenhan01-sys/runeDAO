@@ -9,20 +9,54 @@ mereka boleh salah.**
 ## Provenance (dibaca dulu, ini soal kelayakan)
 
 Struktur permainannya berasal dari **RuneDAO**, entri saya sendiri untuk *0G Bridge Buildathon
-by AKINDO* (kontraknya ditulis 23 Agustus 2026, lokal saja, tidak pernah dipublikasikan dan
-tidak pernah di-deploy). Yang ada di repo ini **bukan port dan bukan salinan**:
+by AKINDO* (kontraknya ditulis 23 Agustus 2026 dan **pernah di-deploy ke 0G Galileo testnet**,
+chainId 16602 — kelimanya hidup di sana; diverifikasi 22 Sep lewat `eth_getCode`, bukan dari
+log lama). Repo-nya **tidak pernah dipublikasikan**, jadi tidak ada riwayat commit publik.
+Yang ada di folder ini **bukan port dan bukan salinan**:
 
 | | versi 0G | di sini |
 |---|---|---|
 | Kontrak | 5 berkas, 869 baris, Hardhat + OZ `AccessControl` | ditulis ulang dari nol, Foundry, `Ownable` + guardian-split |
 | Kas faksi | cek `msg.sender == agen` lalu lepas jumlah **berapa pun** — tanpa cap, tanpa daftar penerima, tanpa jeda | 4 gerbang: `perActionCap`, `dailyCap` (melacak **jumlah**), `minInterval`, `allowedTarget` |
 | Bukti "AI" | field `aiProofHash` berisi `bytes32` bebas yang **tidak diverifikasi apa pun** | dihapus; yang dibuktikan hanya yang benar-benar bisa dibuktikan |
+| Dadu | `RuneDice.sol` commit-reveal, tapi yang mengungkap adalah juga yang memilih `secret`: hasil bisa dicari offline sebelum di-reveal | tidak diport apa adanya — lihat "Rencana RNG" di bawah |
 | Batas belanja | milik guardian, statis | **ikut reputasi agen**, dan reputasi itu digerakkan oleh hasil permainan |
 | Runtime | `bot/` dan `shared/` **kosong**; satu-satunya UI adalah mock dengan hash acak | loop agen nyata yang menyiarkan transaksi sendiri |
 
 Kode di repo ini ditulis selama periode hackathon, dengan riwayat commit yang bisa diperiksa
 publik. Konsep permainan tidak kami klaim sebagai hal baru; **mekanisme penahan daya
 belanjanya** yang baru.
+
+Yang harus diketahui pembaca sejak awal: **deployment 0G-nya masih hidup dan bisa ditemukan
+publik** (Galileo testnet, chainId 16602, kelima kontrak ter-`eth_getCode`). Karena itu nama
+kontrak di sini sengaja berbeda (`RuneRegistry`/`RuneTreasury`, bukan
+`RuneAgentRegistry`/`RuneFactionTreasury`), dan asal-usul ini ditulis di halaman pertama README
+alih-alih menunggu ditanya.
+
+## Rencana RNG (belum dikerjakan — ditulis supaya tidak dilupakan)
+
+`RuneDice.sol` versi 0G **tidak** memberi keacakan yang bisa diverifikasi, dan itu cacat
+struktural, bukan detail implementasi: fungsi `revealRoll()` menerima `secret` dan `actionId`
+bebas asal hash-nya sama dengan `commitHash` milik pengungkap sendiri. Jadi pihak yang
+mengungkap bisa mencari offline pasangan yang menghasilkan angka yang dia suka, lalu baru
+men-reveal. Ditambah lagi `REVEAL_WINDOW = 250` menempel di batas 256 blok yang bisa dibaca
+`blockhash()`.
+
+Skema yang dipakai di sini: **commit ke blok yang belum ada.**
+
+```
+commit : hash = keccak256(secret, targetBlock)   // targetBlock > block.number
+resolve: seed  = keccak256(secret, blockhash(targetBlock));  roll = seed % 20 + 1
+```
+
+Komponen yang tidak dikendalikan si pengungkap (`blockhash` dari blok yang **belum ditambang**
+saat dia berkomitmen) tidak bisa dicari sebelumnya — jadi dia tidak bisa memilih hasil.
+Sisanya jujurnya begini: seorang validator yang menambang `targetBlock` masih bisa
+mempengaruhi hash bloknya sendiri secara kecil. Untuk permainan, itu cukup; untuk angka besar
+yang diperebutkan, itu tidak — dan itu kalimat yang akan ditulis di halaman verifikasi, bukan
+disembunyikan. Kalau nanti dibutuhkan keacakan yang benar-benar tak bisa dipengaruhi,
+**Chainlink VRF v2 sudah terverifikasi ada di chain 97** (`0x6A2AAd07…c82f`, 24.103 byte code)
+sebagai jalur upgrade, tanpa mengubah antarmuka kontrak.
 
 ## Kenapa bentuknya begini
 
