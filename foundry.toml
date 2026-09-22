@@ -1,0 +1,43 @@
+[profile.default]
+src = "contracts"
+out = "out"
+test = "test"
+script = "script"
+# `node_modules/` dan `lib/` di folder ini adalah JUNCTION ke milik app/, bukan salinan —
+# pola yang sama dipakai TradingAgent/ dan AgenticTrack/: satu resep dependensi, nol
+# kesempatan keduanya drifting. OZ 5.1.0 + forge-std 1.16.2 ada di sisi app/.
+libs = ["node_modules", "lib"]
+solc_version = "0.8.26"
+# Default rendah: bytecode jalan di lebih banyak chain. FORK TEST wajib pakai
+# `--profile fork`, karena kontrak pihak ketiga yang ter-deploy (BAS) ditargetkan
+# lebih baru daripada shanghai — pelajaran yang sudah dibayar di app/ dan _research/.
+evm_version = "shanghai"
+optimizer = true
+optimizer_runs = 200
+verbosity = 2
+
+[profile.fork]
+src = "contracts"
+out = "out"
+test = "test"
+script = "script"
+libs = ["node_modules", "lib"]
+solc_version = "0.8.26"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+verbosity = 2
+
+[rpc_endpoints]
+# Diwarisi dari app/foundry.toml apa adanya, termasuk catatan kenapa host tertentu dipilih:
+# `bsc-dataseed.binance.org` pernah ditolak Foundry (certificate expired) dan
+# `data-seed-prebsc-1-s1` terbukti rewel dari mesin ini. Untuk memilih endpoint yang hidup
+# sekarang, jalankan ulang _research/find_bsc_testnet_rpc.py.
+bscTestnet = "https://bsc-testnet.publicnode.com"
+bscTestnetB = "https://data-seed-prebsc-1-s2.binance.org:8545/"
+bscTestnetC = "https://data-seed-prebsc-1-s3.binance.org:8545/"
+bscTestnetD = "https://bsc-testnet.drpc.org"
+bsc = "https://bsc-dataseed1.bnbchain.org/"
+
+[fuzz]
+runs = 256

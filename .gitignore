@@ -1,0 +1,17 @@
+# Secret: tidak pernah di-commit. Kunci burner dibangkitkan skrip, bukan diketik tangan.
+.env
+.env.*
+!.env.example
+**/keystore/
+
+# Build & cache
+out/
+cache/
+broadcast/
+node_modules/
+
+# Junction ke app/ — jangan ikut terlacak sebagai isi repo ini
+/lib/
+
+.DS_Store
+Thumbs.db
