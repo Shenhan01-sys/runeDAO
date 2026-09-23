@@ -1,127 +1,118 @@
-# rune/node — agen otonom dengan kas yang dibatasi kontrak
+# runeDAO — autonomous agents with a treasury they cannot overspend
 
-Indonesia Web3 Hackathon 2026 · track **AI Agents** · target deploy **BSC testnet (chain 97)**.
+Indonesia Web3 Hackathon 2026 · track **AI Agents** · live on **BNB Smart Chain testnet (chainId 97)**.
 
-Satu kalimat: **beberapa agen AI mengelola treasury on-chain milik sendiri dan mengambil
-keputusan tanpa manusia, dan kontraklah — bukan janji kami — yang membatasi seberapa besar
-mereka boleh salah.**
+One sentence: **AI agents each run their own on-chain treasury and act without a human, and the
+contract — not our promise — is what limits how badly they may be wrong.**
 
-## Provenance (dibaca dulu, ini soal kelayakan)
+Status, measured rather than asserted: 3 contracts deployed and read back from the chain, **81
+tests passing**, and an unattended agent loop that has been signing and broadcasting its own
+transactions since 23 Sep 2026. [`vault/03`](vault/03-evidence-and-limits.md) lists which claim
+came from which command.
 
-Struktur permainannya berasal dari **RuneDAO**, entri saya sendiri untuk *0G Bridge Buildathon
-by AKINDO* (kontraknya ditulis 23 Agustus 2026 dan **pernah di-deploy ke 0G Galileo testnet**,
-chainId 16602 — kelimanya hidup di sana; diverifikasi 22 Sep lewat `eth_getCode`, bukan dari
-log lama). Repo-nya **tidak pernah dipublikasikan**, jadi tidak ada riwayat commit publik.
-Yang ada di folder ini **bukan port dan bukan salinan**:
+## Provenance — read this first, it is an eligibility question
 
-| | versi 0G | di sini |
+The game structure comes from **RuneDAO**, my own entry for the *0G Bridge Buildathon by AKINDO*.
+Those contracts were written 23 Aug 2026 and **are deployed and live on 0G's Galileo testnet**
+(chainId 16602) — verified by `eth_getCode` on 22 Sep, not from old logs. That repo was never
+published, so it has no public commit history.
+
+**Nothing was copied from it.** What carried over is the idea; every line here was written during
+the hackathon period, and the code below is what a review of that earlier code produced:
+
+| | 0G version | here |
 |---|---|---|
-| Kontrak | 5 berkas, 869 baris, Hardhat + OZ `AccessControl` | ditulis ulang dari nol, Foundry, `Ownable` + guardian-split |
-| Kas faksi | cek `msg.sender == agen` lalu lepas jumlah **berapa pun** — tanpa cap, tanpa daftar penerima, tanpa jeda | 4 gerbang: `perActionCap`, `dailyCap` (melacak **jumlah**), `minInterval`, `allowedTarget` |
-| Bukti "AI" | field `aiProofHash` berisi `bytes32` bebas yang **tidak diverifikasi apa pun** | dihapus; yang dibuktikan hanya yang benar-benar bisa dibuktikan |
-| Dadu | `RuneDice.sol` commit-reveal, tapi yang mengungkap adalah juga yang memilih `secret`: hasil bisa dicari offline sebelum di-reveal | tidak diport apa adanya — lihat "Rencana RNG" di bawah |
-| Batas belanja | milik guardian, statis | **ikut reputasi agen**, dan reputasi itu digerakkan oleh hasil permainan |
-| Runtime | `bot/` dan `shared/` **kosong**; satu-satunya UI adalah mock dengan hash acak | loop agen nyata yang menyiarkan transaksi sendiri |
+| Faction treasury | checked `msg.sender == agent`, then released **any** amount — no cap, no target list, no interval | five gates, each revertable in front of an audience |
+| "AI proof" | `aiProofHash` accepted any `bytes32` and verified nothing | removed; we prove only what is actually checked |
+| Dice | commit-reveal, but the revealing party also chose the secret → outcome searchable offline before reveal | commit to a block that **does not exist yet** (below) |
+| Spend limit | static, set by the owner | scales with the agent's **reputation**, which the game moves both ways |
+| Runtime | `bot/` and `shared/` empty; the only UI was a mock with randomised hashes | a real loop that broadcasts its own transactions |
 
-Kode di repo ini ditulis selama periode hackathon, dengan riwayat commit yang bisa diperiksa
-publik. Konsep permainan tidak kami klaim sebagai hal baru; **mekanisme penahan daya
-belanjanya** yang baru.
+Contract names differ on purpose (`RuneRegistry`/`RuneTreasury`, not the 0G names), and this
+section is on page one rather than waiting to be asked. We do not claim the game concept is new;
+we claim the **spending-constraint mechanism** is.
 
-Yang harus diketahui pembaca sejak awal: **deployment 0G-nya masih hidup dan bisa ditemukan
-publik** (Galileo testnet, chainId 16602, kelima kontrak ter-`eth_getCode`). Karena itu nama
-kontrak di sini sengaja berbeda (`RuneRegistry`/`RuneTreasury`, bukan
-`RuneAgentRegistry`/`RuneFactionTreasury`), dan asal-usul ini ditulis di halaman pertama README
-alih-alih menunggu ditanya.
+## The problem every "agent holds a wallet" demo dies on
 
-## Rencana RNG (belum dikerjakan — ditulis supaya tidak dilupakan)
+> *What happens when the agent is wrong, confused, or compromised?*
 
-`RuneDice.sol` versi 0G **tidak** memberi keacakan yang bisa diverifikasi, dan itu cacat
-struktural, bukan detail implementasi: fungsi `revealRoll()` menerima `secret` dan `actionId`
-bebas asal hash-nya sama dengan `commitHash` milik pengungkap sendiri. Jadi pihak yang
-mengungkap bisa mencari offline pasangan yang menghasilkan angka yang dia suka, lalu baru
-men-reveal. Ditambah lagi `REVEAL_WINDOW = 250` menempel di batas 256 blok yang bisa dibaca
-`blockhash()`.
+"We turn it off" is not auditable. So the answer here is bytecode. `RuneTreasury.spend()` —
+callable only by the game contract — evaluates:
 
-Skema yang dipakai di sini: **commit ke blok yang belum ada.**
+| # | gate | error |
+|---|---|---|
+| 1 | caller must be the world | `OnlyWorld` |
+| 2 | every spend references a logged action | `EmptyProof` |
+| 3 | the agent's guardian **is** the faction's guardian | `GuardianMismatch` |
+| 4 | faction not frozen by its owner | `FactionFrozenError` |
+| 5 | target on a per-faction allowlist, **empty by default** | `TargetNotAllowed` |
+| 6 | `amount ≤ perActionCap × reputation bonus` | `AbovePerActionCap` |
+| 7 | `spentToday + amount ≤ dailyCap × bonus` — the **sum**, not the count | `AboveDailyCap` |
+| 8 | `minInterval` between spends | `TooSoon` |
+| 9 | the **faction's own** balance, not the contract total | `NotEnoughFunds` |
 
-```
-commit : hash = keccak256(secret, targetBlock)   // targetBlock > block.number
-resolve: seed  = keccak256(secret, blockhash(targetBlock));  roll = seed % 20 + 1
-```
+And the feedback loop that makes it more than a settings screen: only `RuneWorld` may move
+reputation (`OnlyWorld` refuses guardian and platform alike). Failure lowers it; the ceiling is
+computed from it. **An agent that keeps losing shrinks its own budget on chain, with no one at a
+keyboard.** The ceiling gain is capped (`MAX_TIER_BONUS = 3`) so a senior agent cannot earn
+unlimited funds either.
 
-Komponen yang tidak dikendalikan si pengungkap (`blockhash` dari blok yang **belum ditambang**
-saat dia berkomitmen) tidak bisa dicari sebelumnya — jadi dia tidak bisa memilih hasil.
-Sisanya jujurnya begini: seorang validator yang menambang `targetBlock` masih bisa
-mempengaruhi hash bloknya sendiri secara kecil. Untuk permainan, itu cukup; untuk angka besar
-yang diperebutkan, itu tidak — dan itu kalimat yang akan ditulis di halaman verifikasi, bukan
-disembunyikan. Kalau nanti dibutuhkan keacakan yang benar-benar tak bisa dipengaruhi,
-**Chainlink VRF v2 sudah terverifikasi ada di chain 97** (`0x6A2AAd07…c82f`, 24.103 byte code)
-sebagai jalur upgrade, tanpa mengubah antarmuka kontrak.
+Two brakes, two owners: `suspend()` belongs to the agent's guardian; `delist()` belongs to the
+venue and cannot be undone by the guardian — and neither erases what already happened on chain.
 
-## Kenapa bentuknya begini
+## Dice: why the old scheme was not ported
 
-Demo "agen AI pegang wallet sendiri" selalu mati di pertanyaan yang sama: *apa yang terjadi
-kalau agen itu salah, tersesat, atau dibajak?* Jawaban berupa "kami matikan manual" bukan
-jawaban — juri tidak bisa mengujinya.
+A reveal whose party also picks the secret is a search problem, not a commitment. Here the
+commitment binds to a block that had not been mined at commit time:
 
-Jadi yang dibangun adalah **rem yang bisa dibuktikan di chain**:
-
-1. **Reputasi bergerak dua arah.** Hanya kontrak `world` yang boleh mengubahnya; guardian
-   dan platform keduanya ditolak (`OnlyWorld`). Kegagalan menurunkan angka.
-2. **Plafon mengikuti reputasi.** Agen yang gagal terus **memperkecil batas belanjanya
-   sendiri**, on-chain, tanpa ada yang perlu mematikan prosesnya. Naiknya juga dibatasi
-   (`MAX_TIER_BONUS = 3`) supaya agen senior tidak mendapat kas tak terbatas.
-3. **Dua rem, dua pemilik.** Guardian bisa `suspend()` alatnya sendiri; platform bisa
-   `delist()` izin main. Yang kedua tidak bisa dilepas oleh guardian, dan tidak menghapus
-   riwayat aksi yang sudah tercatat.
-4. **Daftar penerima kosong secara default.** Agen tidak bisa mengirim ke alamat karangan
-   sendiri.
-
-## Isi
-
-```
-contracts/RuneRegistry.sol   agen, kapabilitas, reputasi dua arah, dua rem
-contracts/RuneTreasury.sol   kas faksi + 4 gerbang belanja + plafon berbasis reputasi
-test/RuneRegistry.t.sol      26 test
-test/RuneTreasury.t.sol      24 test
-foundry.toml                 profil default (shanghai) + [profile.fork] (cancun)
+```solidity
+commit  : hash = keccak256(abi.encodePacked(secret, targetBlock, agent, nonce))  // targetBlock > now
+resolve : roll = keccak256(abi.encodePacked(secret, blockhash(targetBlock))) % 20 + 1
 ```
 
-`node_modules/` dan `lib/` di folder ini adalah **junction** ke milik `app/` — pola yang sama
-dipakai `TradingAgent/` dan `AgenticTrack/`: satu resep dependensi (OZ 5.1.0, forge-std
-1.16.2), nol kesempatan keduanya drifting.
+The input the agent cannot yet know is the one that decides the outcome, so no offline search over
+secrets can target a result. Stated limit, not hidden: whoever mines `targetBlock` retains a small
+influence over its own block hash. Enough for a game; not enough for real stakes. Chainlink VRF v2
+is confirmed present on chain 97 (`0x6A2AAd07…c82f`) as the upgrade behind the same interface.
 
-## Menjalankan
+`abandon()` exists because a stuck commitment would otherwise brick an agent forever — and it is
+**charged as a failure**, so "reroll until I like it" costs reputation, which costs budget.
+
+## Run it
 
 ```bash
+npm install                 # @openzeppelin/contracts 5.1.0 + viem 2.56.5, this repo's own
 forge build --deny warnings
-forge test
+forge test                  # 81 passed (26 registry · 25 treasury · 30 world)
+
+node tools/make-env.mjs     # fresh burner testnet keys (never prints a value)
+node tools/record-addresses.mjs   # writes deployed addresses, verified against the chain
+
+npm run world               # read-only: regions, reputations, and each agent's next decision
+npm run readback            # asserts the authority chain from live state on chain 97
+npm run agent:once          # one unattended turn: 3 agents, 6 transactions
+npm run agent               # keep the world moving (TICK_SECONDS, default 420)
 ```
 
-Hasil terakhir di mesin ini: **50 passed, 0 failed** (24 + 26), Solc 0.8.26.
+Layout: `contracts/` (3) · `test/` (3 files, 81 tests) · `script/` (Deploy, Seed, Fund,
+ReplaceWorld, Readback) · `agent/` (pure decision policy + runner + terminal world view) ·
+`tools/` (env + address bookkeeping) · `vault/` (reasoning, evidence, limits).
 
-Dua jebakan yang sudah menggigit dan sekarang dikunci oleh tes, dicatat supaya tidak dibayar
-dua kali:
+## What this project does **not** prove
 
-- **`vm.prank()` termakan panggilan view.** Memakai `registry.STARTING_REPUTATION()` di dalam
-  argumen setelah `vm.prank(world)` membuat prank habis di getter itu, dan pemanggil
-  berikutnya datang dari alamat test. Ambil konstantanya ke variabel lokal **sebelum** prank.
-- **OpenZeppelin 5 melempar custom error, bukan string.** `expectRevert("Ownable: caller is
-  not the owner")` gagal; pakai `Ownable.OwnableUnauthorizedAccount.selector` dengan alamat
-  pemanggil sebagai argumen.
+Printed up front, because that is what makes the rest of the claims worth reading.
 
-## Yang TIDAK dibuktikan proyek ini
+- **Not** that an agent's decision was wise. Proven: who may act, within what limit, at what cost.
+- **Not** that any language model produced anything. **No LLM is in the decision path**; narration
+  is cosmetic and unbuilt.
+- **Not** unmanipulable randomness — see the validator caveat above.
+- **Not** that an address corresponds to a person or organisation.
+- **Not** verified contract source on the block explorer: BscScan's V1 verification is deprecated
+  and V2 is paid for BSC, so verification here is by RPC and `cast call`, and we say so.
+- **Not** a market, users, or revenue. It is a mechanism, demonstrated on testnet.
 
-Ditulis di muka, karena itulah yang membuat klaim sisanya layak dipercaya:
+## Context notes
 
-- **Bahwa keputusan agen itu benar atau pintar.** Yang dibuktikan: siapa yang boleh
-  bertindak, sejauh mana, dan apa akibatnya. Mutu keputusan agen tidak kami klaim dan tidak
-  bisa kami klaim tanpa verifiable inference (TEE/zkML) — yang **tidak tersedia** sebagai
-  lapisan first-party di chain ini.
-- **Bahwa output LLM berasal dari model tertentu.** Kalau lapisan naratif memakai LLM, itu
-  hiasan di atas keputusan yang dihitung off-chain; ia bukan bagian dari bukti.
-- **Keaslian identitas agen di dunia nyata.** Yang terikat adalah address, bukan orang atau
-  organisasi.
-- **Ketepatan waktu`dailyCap` sampai detik.** `block.timestamp` bisa digeser penambang
-  belasan detik; untuk jendela satu hari itu tidak berarti apa-apa, dan kami tidak akan
-  mengklaim lebih.
+[`vault/`](vault/README.md) — why the product is shaped this way, what has been **run** versus
+merely claimed, measured chain parameters, the toolchain traps already paid for, and the order of
+remaining work. Nothing there is needed to build; it is needed to judge what is true.

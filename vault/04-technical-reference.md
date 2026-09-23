@@ -1,0 +1,100 @@
+# 04 — Technical reference
+
+## Deployment (BSC testnet, chainId 97)
+
+| item | value |
+|---|---|
+| `RuneRegistry` | `0x56bf7e4ae3dea386c5e929be40c1bbac7013e7ae` (4,815 B code) |
+| `RuneTreasury` | `0x94a03650e578e2553a1d74e4ea24469228df2209` (5,920 B) |
+| `RuneWorld` (current) | `0xf83F618C474e1ec36a4D6E13f9B16E54D81fE600` (8,288 B) |
+| `RuneWorld` (first, superseded) | `0x5D8bdA7cB2B40834a2D0D576Ef0cD64953Be0b3A` — kept for audit; **no longer authoritative** |
+| Platform owner / deployer | `0xAEc63F6cEbBfacdC3516992b6ec396147c9c8361` |
+| Guardians A/B/C | `0x4e667dB4…93E3` · `0x4cc46460…2B56` · `0x6dEA871B…2442` |
+| Agents A/B/C | `0x441500a5…aF79` · `0x81Cefc48…d318` · `0x5863d8c0…82b82C` |
+
+Private keys live in `.env` (git-ignored) and are **testnet burners**, never to be reused anywhere
+else. The deployer key on this development machine is deliberately shared with another hackathon
+entry of mine; `--fresh-deployer` separates them for any new deployment. Regenerate on a new machine with `node tools/make-env.mjs --fresh-deployer` (idempotent: keys
+already present are preserved, and no key value is ever printed). Recorded deployed addresses
+with `node tools/record-addresses.mjs`, which verifies bytecode on chain before writing.
+
+## Chain parameters, measured — not copied from docs
+
+| thing | value | how |
+|---|---|---|
+| `eth_gasPrice` on 97 | `0x5f5e100` = 100,000,000 wei = **0.1 gwei** | `eth_gasPrice` |
+| one full agent action | ≈ **0.000037 BNB** (2 txs, ~370k gas) | arithmetic on the above |
+| Chainlink VRF v2 coordinator (97) | `0x6A2AAd07396B36Fe02a22b33cf443582f682c82f`, 24,103 B code | `eth_getCode` |
+| VRF v2.5 coordinator / wrapper (97) | `0xDA3b641D438362C440Ac5458c57e00a712b66700` / `0x471506e6ADED0b9811D05B8cAc8Db25eE839Ac94` | `eth_getCode` |
+| LINK on 97 | `0x84b9B910527Ad5C03A9Ca831909E21e236EA7b06`, 5,573 B | `eth_getCode` |
+| ERC-8004 registries | Identity & Reputation live on **97 and 56** (130 B proxies); **no ValidationRegistry** | `eth_getCode` both chains |
+
+The VRF/8004 rows are *not used by this project yet*. They are recorded because the obvious
+objection — "you could not have done this on BNB" — is false, and the accurate answer is "the
+primitives exist, we chose the cheaper one, and here is what it does not buy us"
+([02](02-architecture.md)).
+
+## Working commands
+
+```bash
+npm install                      # @openzeppelin/contracts 5.1.0 + viem 2.56.5, this repo's own
+forge build --deny warnings
+forge test                       # 81 passed
+npm run world                    # read-only: regions, reputations, next decision per agent
+npm run readback                 # forge script; asserts the authority chain from live state
+npm run agent:once               # one unattended turn, three agents, six transactions
+npm run agent                    # loop (TICK_SECONDS, default 420)
+```
+
+Scripts that **move money** (all need `--broadcast`): `Deploy.s.sol` (first bring-up),
+`Seed.s.sol` (idempotent region seeding), `Fund.s.sol` (agent gas + faction cash),
+`ReplaceWorld.s.sol` (swap the world without touching treasuries).
+
+## Toolchain traps already paid for — do not pay twice
+
+1. **`Stack too deep` on the 11-argument `Action` event.** Fixed with `viaIR = true` in *both*
+   profiles (default and `fork`), so the bytecode tested equals the bytecode deployed. The
+   alternative — trimming the event — moves the cost onto every reader of the log.
+2. **`vm.prank()` / `vm.expectRevert()` are consumed by the *next external call*, including view
+   calls.** Writing `world.MAX_TARGET_HORIZON()` inside an argument list after
+   `vm.expectRevert(…)` eats the expectation and the test passes for the wrong reason — or fails
+   with a confusing error. Hoist constants into locals first. This bit the test suite three times.
+3. **OpenZeppelin 5 reverts with custom errors, not strings.** `expectRevert("Ownable: caller is
+   not the owner")` fails; use
+   `abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, caller)`.
+4. **`RuneRegistry.Agent` / structs from another contract**: access public constants through the
+   instance (`registry.MAX_REPUTATION()`), not `Registry.MAX_REPUTATION()`, from a non-derived
+   contract.
+5. **Solidity string literals reject em dashes** (`—`) — the compiler reports *Invalid character in
+   string*. Keep ASCII inside strings; em dashes are fine in comments.
+6. **PowerShell `Set-Content -Encoding UTF8` writes a BOM** that breaks the Solidity parser at
+   line 1. Use `[IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))`.
+7. **`abi.encodePacked` is not string concatenation.** The runner's commit hash must be
+   `encodePacked(["bytes32","uint32","address","uint256"], […])`; a hex-string concat produced a
+   hash the contract could never match.
+8. **viem has no `waitForBlockNumber`.** Poll `getBlockNumber()`.
+9. **`effectiveCaps()` returns a tuple** — viem hands back one array. Destructuring it into two
+   slots silently reads the pair as the first value and `undefined` as the second.
+10. **Public RPC endpoints fail in ways that look like contract bugs.** Observed on 23 Sep from
+    this machine: `bsc-testnet-rpc.publicnode.com` → HTTP 520 mid-script; `bsc-testnet.drpc.org` →
+    408 "Request timeout on the free plan"; stale heads caused `TargetBlockNotFuture` reverts.
+    any live endpoint from the `[rpc_endpoints]` table works; the runner re-reads the head
+    and retries once.
+11. **`run-latest.json` `transactionIndex` is not a reliable ordering key** — several entries share
+    a value, which once made a readback script report "1 CREATE". Filter
+    `transactionType == "CREATE"` and keep file order.
+12. **`cast balance --unit bnb` is invalid** (units are wei/gwei/ether/…); it fails silently under
+    `2>nul`. Use `--unit ether` or JSON-RPC.
+
+## Design traps worth naming
+
+- **Balance the books per owner, not per contract.** Checking `address(this).balance` looked
+  correct and let one faction spend another's.
+- **Never let a caller pick its own randomness input.** The predecessor's reveal step accepted any
+  pre-image matching the revealer's own commitment — searchable offline.
+- **Every irreversible lock needs a paid exit.** One-open-commit is the right rule; without
+  `abandon()` it becomes permanent denial of service on the agent's own account.
+- **Log secrets when they become binding, not when they are used.** The crash window between
+  commit and resolve is exactly where an agent becomes unrecoverable.
+- **A docstring that promises protection must be matched by a gate.** The line that claimed agents
+  "cannot spend another faction's treasury" was written *before* the check existed.

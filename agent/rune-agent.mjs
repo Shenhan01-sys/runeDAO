@@ -28,7 +28,16 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createPublicClient, createWalletClient, decodeEventLog, encodePacked, http, keccak256, parseAbi } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  decodeEventLog,
+  encodePacked,
+  http,
+  keccak256,
+  parseAbi,
+  toFunctionSelector,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -322,6 +331,63 @@ function secretForCommit(commitHash) {
 
 const short = (h) => (h ? `${String(h).slice(0, 10)}…${String(h).slice(-6)}` : "");
 
+/// Daftar error yang bisa dikeluarkan world/treasury, jadi selector dari receipt yang gagal
+/// bisa dibaca manusia. Tanpa ini loop yang gagal hanya meninggalkan "status reverted" — dan
+/// itu persis cara sistem otonom menjadi tidak bisa diaudit oleh pembuatnya sendiri.
+const WORLD_ERRORS = [
+  "NotOperable",
+  "CapabilityMissing",
+  "RegionUnknown",
+  "RegionCooldownActive",
+  "CommitAlreadyOpen",
+  "EmptyTranscript",
+  "TargetBlockNotFuture",
+  "TargetBlockTooFar",
+  "NoCommit",
+  "CommitMismatch",
+  "EmptySecret",
+  "UnknownKind",
+  "NotRegionOwner",
+  "RevealWindowOpen",
+];
+const TREASURY_ERRORS = [
+  "OnlyWorld",
+  "EmptyProof",
+  "GuardianMismatch",
+  "FactionFrozenError",
+  "TargetNotAllowed",
+  "AbovePerActionCap",
+  "AboveDailyCap",
+  "TooSoon",
+  "NotEnoughFunds",
+  "UnknownFaction",
+  "TransferFailed",
+];
+
+const ERROR_BY_SELECTOR = new Map([...WORLD_ERRORS, ...TREASURY_ERRORS].map((n) => [toFunctionSelector(`${n}()`), n]));
+
+/// Ulangi panggilan yang gagal di blok sebelum ia ditambang, supaya alasan revert terbaca.
+async function explainRevert(client, WORLD, txHash) {
+  try {
+    const [tx, receipt] = await Promise.all([
+      client.getTransaction({ hash: txHash }),
+      client.getTransactionReceipt({ hash: txHash }),
+    ]);
+    // Ulangi di blok SEBELUM tx itu ditambang: di situ state masih seperti saat kontrak
+    // mengevaluasinya, jadi revert yang sama akan muncul lagi dan bisa didekode.
+    await client.call({ to: tx.to, data: tx.data, account: tx.from, blockNumber: BigInt(receipt.blockNumber) - 1n });
+    return "re-estimasi lolos (state sudah berubah sejak itu)";
+  } catch (err) {
+    const data = typeof err?.data === "string" ? err.data : err?.docsPath ? null : null;
+    const sel = data && String(data).startsWith("0x") ? String(data).slice(0, 10) : null;
+    const name = sel ? ERROR_BY_SELECTOR.get(sel) : null;
+    if (name) return `${name} (${sel})`;
+    const decoded = err?.shortMessage ? String(err.shortMessage).split("\n")[0] : null;
+    return decoded ? `${decoded}${sel ? ` [${sel}${name ? ":" + name : ""}]` : ""}` : String(err?.message ?? err).slice(0, 120);
+  }
+}
+
+
 // ------------------------------------------------------------------ transaksi
 
 function parseAction(receipt, WORLD) {
@@ -352,7 +418,10 @@ async function resolveCommit({ client, wallet, WORLD, tag, secret, commitHash, t
   await waitUntilBlock(client, targetBlock);
   const resolveTx = await wallet.writeContract({ address: WORLD, abi: ABI, functionName: "resolve", args: [secret] });
   const receipt = await client.waitForTransactionReceipt({ hash: resolveTx });
-  if (receipt.status !== "success") throw new Error(`resolve ${short(resolveTx)} status ${receipt.status}`);
+  if (receipt.status !== "success") {
+    const why = await explainRevert(client, WORLD, resolveTx);
+    throw new Error(`resolve ${short(resolveTx)} reverted: ${why}`);
+  }
   const outcome = parseAction(receipt, WORLD);
   log({ t: Date.now(), tag, event: "resolve", tx: resolveTx, commitTx, commitHash, secret, targetBlock, transcriptHash, outcome });
   console.log(
@@ -434,7 +503,12 @@ async function runTurn({ client, rpcUrl, WORLD, REGISTRY, TREASURY, E, tag, fact
         args: [hash, decision.regionId, kind, targetBlock, tr.hash],
       });
       const commitReceipt = await client.waitForTransactionReceipt({ hash: commitTx });
-      if (commitReceipt.status !== "success") throw new Error(`commit ${short(commitTx)} status ${commitReceipt.status}`);
+      if (commitReceipt.status !== "success") {
+        const why = await explainRevert(client, WORLD, commitTx);
+        const e = new Error(`commit ${short(commitTx)} reverted: ${why}`);
+        e.revertReason = why;
+        throw e;
+      }
 
       // Secret dicatat SEBELUM resolve: crash di tengah tidak boleh mengunci agen.
       log({
@@ -466,7 +540,7 @@ async function runTurn({ client, rpcUrl, WORLD, REGISTRY, TREASURY, E, tag, fact
     } catch (err) {
       lastErr = err;
       const msg = String(err?.shortMessage ?? err?.message ?? err);
-      if (!msg.includes("TargetBlockNotFuture")) break;
+      if (!msg.includes("TargetBlockNotFuture")) break; // hanya itu yang layak diulang
       console.log(`  [${tag}] target blok terlewat, hitung ulang (percobaan ${attempt + 2})`);
       await new Promise((r) => setTimeout(r, 1500));
     }
