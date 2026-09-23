@@ -401,7 +401,26 @@ async function explainRevert(client, WORLD, txHash) {
     // Ulangi di blok SEBELUM tx itu ditambang: di situ state masih seperti saat kontrak
     // mengevaluasinya, jadi revert yang sama akan muncul lagi dan bisa didekode.
     await client.call({ to: tx.to, data: tx.data, account: tx.from, blockNumber: BigInt(receipt.blockNumber) - 1n });
-    return "re-estimasi lolos (state sudah berubah sejak itu)";
+    // "Lolos saat diulang" BUKAN penjelasan, dan dulu kalimatnya berpura-pura menjelaskan.
+    // Sekarang ikut dilaporkan apa yang masih mungkin menjelaskan: apakah agen punya commit
+    // menggantung (sebab paling mungkin: CommitAlreadyOpen), dan blok berapa tx itu mendarat.
+    let pending = "tidak terbaca";
+    try {
+      const c = await client.readContract({
+        address: WORLD,
+        abi: ABI,
+        functionName: "getCommit",
+        args: [tx.from],
+        blockNumber: BigInt(receipt.blockNumber) - 1n,
+      });
+      pending = c[6] ? `ADA (target ${c[2]}, region ${c[3]})` : "tidak ada";
+    } catch {
+      /* state historis mungkin tidak tersedia di RPC publik */
+    }
+    return (
+      `re-estimasi di blok ${BigInt(receipt.blockNumber) - 1n} Justru lolos - jadi alasan revert bukan aturan yang bisa dilihat dari sana. ` +
+      `Commit menggantung agen ini saat itu: ${pending}`
+    );
   } catch (err) {
     const data = typeof err?.data === "string" ? err.data : err?.docsPath ? null : null;
     const sel = data && String(data).startsWith("0x") ? String(data).slice(0, 10) : null;
@@ -443,6 +462,7 @@ function parseAction(receipt, WORLD) {
       if (d.eventName === "Action") {
         return {
           actionId: d.args.actionId,
+          kind: d.args.kind,
           roll: Number(d.args.roll),
           threshold: Number(d.args.threshold),
           success: d.args.success,
@@ -469,9 +489,15 @@ async function resolveCommit({ client, wallet, WORLD, tag, secret, commitHash, t
   }
   const outcome = parseAction(receipt, WORLD);
   log({ t: Date.now(), tag, event: "resolve", tx: resolveTx, commitTx, commitHash, secret, targetBlock, transcriptHash, outcome });
-  console.log(
-    `  [${tag}] dadu ${outcome.roll} vs ambang ${outcome.threshold} -> ${outcome.success ? "BERHASIL" : "GAGAL"} ${short(resolveTx)}`
-  );
+  // Untuk raid yang berarti adalah roll vs ambang. Untuk entrench threshold SELALU 0 di
+  // kontrak (tidak ada ambang), dan mencetak "vs ambang 0" membuat terminal demo terlihat
+  // seperti hasilnya ditentukan oleh angka yang tidak ada. Yang berarti di sana: +kekuatan.
+  const kindName = outcome.kind === KIND_ENTRENCH ? "ENTRENCH" : outcome.kind === KIND_RAID ? "RAID" : null;
+  const verdict =
+    kindName === "ENTRENCH"
+      ? `dadu ${outcome.roll} -> kekuatan ${outcome.strength}${outcome.success ? "" : " (dadu kecil, tidak bertambah)"}`
+      : `dadu ${outcome.roll} vs ambang ${outcome.threshold} -> ${outcome.success ? "BERHASIL" : "GAGAL"}`;
+  console.log(`  [${tag}] ${verdict} ${short(resolveTx)}`);
   return { ...outcome, region: regionId };
 }
 
