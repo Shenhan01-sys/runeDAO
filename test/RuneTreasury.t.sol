@@ -338,4 +338,127 @@ contract RuneTreasuryTest is Test {
         vm.expectRevert(RuneTreasury.NotGuardian.selector);
         treasury.setTarget(FACTION, stranger, true);
     }
+    // --------------------------------------------------------------- pintu keluar
+
+    /// Alur keuangan pemain harus berbentuk lingkaran, bukan koridor buntu: tanpa
+    /// withdraw(), setor bisa dan berhenti tidak bisa.
+    function test_guardianWithdrawsAndBothBooksMove() public {
+        uint256 guardianBefore = guardian.balance;
+        (uint96 balBefore, uint256 contractBefore) = snap();
+
+        vm.prank(guardian);
+        treasury.withdraw(FACTION, 0.0004 ether);
+
+        (uint96 balAfter, uint256 contractAfter) = snap();
+        assertEq(uint256(balAfter), uint256(balBefore) - 0.0004 ether, "buku kas faksi berkurang");
+        assertEq(contractBefore - contractAfter, 0.0004 ether, "ETH benar-benar keluar");
+        assertEq(guardian.balance - guardianBefore, 0.0004 ether, "sampai ke guardian");
+    }
+
+    /// Agen TIDAK boleh menarik kas faksi: uang yang boleh dihabiskan agen bukan uang yang
+    /// boleh dia amankan untuk dirinya sendiri.
+    function test_rejectWithdrawByAgent() public {
+        vm.prank(agent);
+        vm.expectRevert(RuneTreasury.NotGuardian.selector);
+        treasury.withdraw(FACTION, 1);
+    }
+
+    function test_rejectWithdrawByStranger() public {
+        vm.prank(stranger);
+        vm.expectRevert(RuneTreasury.NotGuardian.selector);
+        treasury.withdraw(FACTION, 1);
+    }
+
+    function test_rejectWithdrawMoreThanFactionBalance() public {
+        (uint96 bal,) = snap();
+        vm.prank(guardian);
+        vm.expectRevert(RuneTreasury.NotEnoughFunds.selector);
+        treasury.withdraw(FACTION, bal + 1);
+    }
+
+    /// Keputusan sadar: `frozen` menghentikan AKSI, bukan pemiliknya. Rem yang ikut mengunci
+    /// dana pemiliknya sendiri berubah jadi alat sandera.
+    function test_guardianCanStillExitWhileFrozen() public {
+        vm.prank(guardian);
+        treasury.setFrozen(FACTION, true);
+
+        vm.prank(guardian);
+        treasury.withdraw(FACTION, 0.0002 ether);
+        assertTrue(treasury.getFaction(FACTION).balance < 1 ether);
+    }
+
+    /// Penarikan bukan aksi permainan: pembukuan belanja agen tidak boleh tersentuh, kalau
+    /// iya maka plafon harian bisa dibuang-buang lewat gerakan pemilik.
+    function test_withdrawDoesNotTouchAgentSpendingBook() public {
+        vm.prank(guardian);
+        treasury.withdraw(FACTION, 0.0005 ether);
+
+        RuneTreasury.Faction memory f = treasury.getFaction(FACTION);
+        assertEq(uint256(f.spends), 0);
+        assertEq(uint256(f.totalSpent), 0);
+        assertEq(uint256(f.spentToday), 0);
+    }
+
+    /// Setelah kas dikuras, agen harus berhenti sendiri — dan berhenti dengan alasan, bukan
+    /// mencoba lalu gagal.
+    function test_emptyTreasuryStillAllowsExactWithdrawAndBlocksSpend() public {
+        (uint96 bal,) = snap();
+        vm.prank(guardian);
+        treasury.withdraw(FACTION, bal);
+        assertEq(uint256(treasury.getFaction(FACTION).balance), 0);
+
+        vm.expectRevert(RuneTreasury.NotEnoughFunds.selector);
+        treasury.spend(agent, address(this), 1, PROOF);
+    }
+
+    /// Bukti ceklis yang klaimnya CEI: saldo sudah susut SEBELUM uang keluar, jadi penerima
+    /// yang mencoba masuk lagi tidak bisa mengambil dua kali.
+    function test_reentrantGuardianCannotDoubleWithdraw() public {
+        ReentrantGuardian rg = new ReentrantGuardian(address(treasury), address(registry));
+        vm.deal(address(rg), 1 ether);
+
+        vm.prank(address(rg));
+        treasury.createFaction(77);
+        vm.prank(address(rg));
+        treasury.deposit{value: 0.001 ether}(77);
+
+        vm.prank(address(rg));
+        treasury.withdraw(77, 0.001 ether);
+
+        assertTrue(rg.reentered(), "callback seharusnya terjadi");
+        assertFalse(rg.gotExtra(), "penarikan ulang di dalam callback tidak boleh berhasil");
+        assertEq(uint256(treasury.getFaction(77).balance), 0, "kas habis tepat sekali");
+        // Net: setor 0,001 lalu tarik 0,001 = kembali persis ke 1 ether awal.
+        // Angka ini justru yang membuktikan tidak ada pembayaran ganda: kalau callback
+        // tadi sempat berhasil, saldo rg jadi 1,001 ether.
+        assertEq(address(rg).balance, 1 ether, "tidak ada satu wei pun yang ganda");
+        // Sisa 1 ether di kontrak ini adalah uang FAKSI 1 (setUp), bukan uang faksi 77.
+        // Kalau penarikan ganda sempat terjadi, angka ini yang akan bergeser.
+        assertEq(address(treasury).balance, 1 ether, "kas faksi lain tidak boleh tersentuh");
+    }
+
+    function snap() internal view returns (uint96 factionBalance, uint256 contractBalance) {
+        return (treasury.getFaction(FACTION).balance, address(treasury).balance);
+    }
+}
+
+/// Guardian yang nakal: mencoba menarik lagi begitu uangnya masuk.
+contract ReentrantGuardian {
+    RuneTreasury internal immutable TI;
+    RuneRegistry internal immutable RE;
+    bool public reentered;
+    bool public gotExtra;
+
+    constructor(address treasury_, address registry_) {
+        TI = RuneTreasury(treasury_);
+        RE = RuneRegistry(payable(registry_));
+    }
+
+    receive() external payable {
+        if (msg.sender != address(TI)) return;
+        reentered = true;
+        // Tarik lagi sebanyak yang dia punya: kalau pembukuan belum sempat menyusut, ini sukses.
+        (bool ok, ) = address(TI).call(abi.encodeCall(RuneTreasury.withdraw, (77, type(uint96).max)));
+        gotExtra = ok;
+    }
 }

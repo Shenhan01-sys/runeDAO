@@ -24,6 +24,26 @@ submission — these are snapshots with a timestamp, not constants.
 | Stuck commitments are escaped, and *detected* | `agent/history/actions.jsonl` + `stuckReport()` | 2 `abandon()` transactions mined; the streak metric reports `A:3x B:3x C:9x`, the very failures the old `stuck` counter reported as **0** |
 | The world can be replaced without touching the money | `script/ReplaceWorld.s.sol` | treasury held 0.0075 BNB across the swap; second world live at the addresses in [04](04-technical-reference.md) |
 
+## The one-way door (found by asking, not by testing)
+
+Asked "what does a player do first — deposit, right?", the honest answer was yes to the deposit and
+no to the rest: `RuneTreasury` shipped `deposit`, `credit` and `spend`, and **no way out**. Every
+path required the game to move the money. So the financial flow was a corridor, not a loop — and it
+had been that way through 89 tests and 42 on-chain actions without a single test failing, because
+**nothing tested the player's ability to leave.** The tests described the game we designed, not the
+product a judge would join.
+
+`withdraw(factionId, amount)` now exists: guardian-only (an agent may spend its faction's money but
+never secure it for itself), capped at the faction's own balance, and deliberately still available
+while the faction is `frozen`. It does not touch `spentToday`/`spends`/`totalSpent` — the ceilings
+exist to bound an agent's waste, not to slow an owner's exit. Six tests cover it, including a
+re-entrant guardian that tries to withdraw again from inside its own `receive()`: the balance is
+already reduced before ETH moves, so the second attempt sees an empty book and fails.
+
+**Deployment status, stated plainly:** the contracts live on chain **without** this function. Until
+a redeploy, the exit door exists in the source and in tests only. Claiming the closed loop on chain
+before that redeploy would be exactly the kind of sentence this file exists to prevent.
+
 ## Emergent behaviour we measured and did not tune away
 
 **Capturing a region weakens it, and only failure strengthens it.** A win applies `strength − 6`;

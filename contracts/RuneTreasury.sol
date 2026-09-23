@@ -69,6 +69,9 @@ contract RuneTreasury is Ownable {
     event PolicySet(uint96 indexed factionId, uint96 perActionCap, uint96 dailyCap, uint32 minInterval);
     event TargetSet(uint96 indexed factionId, address indexed target, bool allowed);
     event Deposited(uint96 indexed factionId, address indexed from, uint96 amount);
+    /// @notice Satu-satunya jalan uang KELUAR tanpa melewati permainan. `remaining` ikut
+    ///     dilaporkan supaya auditor tidak perlu panggilan tambahan untuk mengecek buku kas.
+    event Withdrawn(uint96 indexed factionId, address indexed guardian, uint96 amount, uint96 remaining);
     event Spent(uint96 indexed factionId, address indexed agent, address indexed target, uint96 amount, bytes32 proofHash);
     event FactionFrozen(uint96 indexed factionId, bool frozen);
 
@@ -165,6 +168,38 @@ contract RuneTreasury is Ownable {
         Faction storage f = _requireFaction(factionId);
         f.balance += uint96(msg.value);
         emit Deposited(factionId, msg.sender, uint96(msg.value));
+    }
+
+    /// @notice Guardian menarik kembali dana faksinya. **Ini satu-satunya pintu keluar.**
+    ///
+    /// Tanpa fungsi ini alur keuangan pemain berbentuk pintu satu arah: setor bisa, berhenti
+    /// tidak bisa. Itu bukan sekadar ketidaknyamanan — klaim proyek ini adalah "agen boleh
+    /// pegang uang karena pemiliknya masih pegang kendali", dan kendali tanpa jalan keluar itu
+    /// namanya ditahan.
+    ///
+    /// Tiga keputusan yang disengaja di sini:
+    ///  - **Hanya guardian.** Agen tidak punya hak tarik: uang yang boleh dibelanjakan agen
+    ///    adalah uang yang boleh dia habiskan, bukan yang boleh dia amankan untuk dirinya.
+    ///  - **Tetap bisa saat faksi beku.** `frozen` adalah rem untuk *aksi*, bukan untuk *pemilik*.
+    ///    Rem yang mengunci dana pemiliknya sendiri berubah jadi alat sandera — dan yang memasang
+    ///    rem itu justru pemiliknya, jadi pembekuan tidak boleh bisa mengurung uangnya sendiri.
+    ///  - **Tidak dihitung sebagai belanja.** Penarikan bukan aksi permainan: ia tidak menyentuh
+    ///    `spentToday`, `spends`, atau `totalSpent`. Yang dibatasi di sini adalah seberapa boros
+    ///    seorang AGEN, bukan seberapa cepat pemiliknya boleh berhenti main.
+    function withdraw(uint96 factionId, uint96 amount) external {
+        Faction storage f = _requireFaction(factionId);
+        if (f.guardian != msg.sender) revert NotGuardian();
+        if (amount > f.balance) revert NotEnoughFunds();
+
+        // Urutan checks-effects-interaction: saldo sudah dikurangi SEBELUM uang keluar, jadi
+        // kalau penerimanya kontrak yang mencoba masuk lagi, dia melihat kas yang sudah susut.
+        // (Tidak perlu "mengembalikan" saldo saat transfer gagal: revert membatalkan semua state
+        // di transaksi itu — menulis saldo kembali di sini hanya akan jadi kode yang tampak
+        // melindungi padahal tidak melakukan apa pun.)
+        f.balance -= amount;
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        if (!ok) revert TransferFailed();
+        emit Withdrawn(factionId, msg.sender, amount, f.balance);
     }
 
     // ------------------------------------------------------------------ gerbang belanja

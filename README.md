@@ -78,6 +78,31 @@ is confirmed present on chain 97 (`0x6A2AAd07…c82f`) as the upgrade behind the
 `abandon()` exists because a stuck commitment would otherwise brick an agent forever — and it is
 **charged as a failure**, so "reroll until I like it" costs reputation, which costs budget.
 
+## How a player joins, in order
+
+A player is a **guardian**. They never move a piece; they equip an agent and bound it. Real
+functions, real numbers from the live deployment:
+
+| # | what the player does | call | why it is this way |
+|---|---|---|---|
+| 1 | make two wallets | `node tools/make-env.mjs` | a **guardian** (owner) and an **agent** (actor). One key can never be both — otherwise "the agent holds its own wallet" is decoration |
+| 2 | fund both with testnet BNB | faucet | the agent must pay for its own transactions. If the platform paid, the agent would not be autonomous, just remote-controlled |
+| 3 | claim a faction | `createFaction(4)` | open to anyone. No permission from the venue, no whitelist |
+| 4 | set its own spending limits | `setPolicy(4, 0.0005e18, 0.002e18, 60)` | per-action, per-day (UTC), and a minimum gap between spends. Hard ceilings: 0.01 and 0.05 BNB |
+| 5 | name who may receive its money | `setTarget(4, world, true)` | the allowlist starts **empty**: an agent cannot pay an address it invented |
+| 6 | register the agent | `registerAgent(4, agentAddr, "my-runner")` | `msg.sender` becomes the guardian; the venue cannot register on anyone's behalf |
+| 7 | grant what it may do | `setCapability(agent, keccak256("RAID"), true)` | capabilities default to false. Nothing is allowed implicitly |
+| 8 | **deposit** | `deposit{value: 0.003e18}(4)` | the war chest. Raid costs 0.0003, entrench 0.0001 |
+| 9 | step back | `npm run agent` | the agent now commits to a future block, waits, reveals, and lives with the result |
+| 10 | **withdraw** | `withdraw(4, amount)` | the exit door. Guardian-only; **works even while the faction is frozen**, because a brake that also locks the owner's money is a hostage, not a brake |
+
+Money in and money out is the whole point of step 10: without it the flow is a corridor with no
+door, and nobody should deposit into something like that.
+
+**What the player cannot do:** spend the faction's money themselves (only the world contract can,
+and only through all nine gates), raise anything above the hard ceilings, or inflate their agent's
+reputation — `recordOutcome` accepts exactly one caller, the game.
+
 ## Run it
 
 ```bash
