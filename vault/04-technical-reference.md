@@ -96,6 +96,17 @@ Scripts that **move money** (all need `--broadcast`): `Deploy.s.sol` (first brin
     taken over automatically, and the lock file is git-ignored because it is machine state.
     Verified: second instance prints the refusal and exits non-zero.
 
+15. **Never use `os.kill(pid, 0)` as a liveness probe on Windows.** Python documents that on
+    Windows the signal is handed to `TerminateProcess`, so a "successful" probe *kills* the target.
+    Measured here: it raised `OSError` and the process survived — but surviving was luck, not
+    semantics. Use `tasklist /fi "PID eq N" /fo csv /nh` (read-only, no side effect). The runner's
+    lock check is Node's `process.kill(pid, 0)`, which Node explicitly defines as an existence test.
+16. **Background-shell status files are nested under a per-session uuid directory.** A flat
+    `glob("<tmp>/shell-bg_*.status")` silently returns nothing and reads as "no loop is running".
+    Use `**` with `recursive=True`, and never let an empty directory listing become a negative
+    conclusion — same class of mistake as a watchdog that reports zero when it simply looked
+    in the wrong place.
+
 ## Design traps worth naming
 
 - **Balance the books per owner, not per contract.** Checking `address(this).balance` looked
