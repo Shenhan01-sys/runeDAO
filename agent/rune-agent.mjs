@@ -48,6 +48,9 @@ export const FACTION_TAGS = ["A", "B", "C"];
 const BLOCKS_AHEAD = 6;
 const TICK_SECONDS = Number(process.env.TICK_SECONDS ?? 420);
 const GAS_PER_ACTION = 740000n;
+// Ambang "cukup lemah untuk dipertahankan". 10 dipilih dari data: wilayah yang jatuh di
+// bawah itu punya ambang raid <= 9 dan cenderung berpindah tangan tiap tick.
+const DEFEND_BELOW = 10;
 const WEI_PER_GAS = 100000000n; // 0,1 gwei — terukur dari eth_gasPrice chain 97, bukan asumsi
 
 const bytes = (s) => new Uint8Array(Buffer.from(s, "utf8"));
@@ -95,9 +98,10 @@ export function loadEnv(path = join(ROOT, ".env")) {
  * dijawab dari state yang dibaca — bukan dari log yang ditulis setelah kejadian.
  *
  * Prioritasnya sendiri adalah kebijakan, dan ditulis di sini supaya bisa dibantah:
- *   1. raid ke wilayah dengan hadiah terbesar per unit risiko, asal ambangnya <= 15
- *   2. pertahankan wilayah sendiri yang paling lemah
+ *   1. pertahankan wilayah sendiri yang sudah lemah (< DEFEND_BELOW)
+ *   2. raid ke wilayah dengan hadiah terbesar per unit risiko, asal ambangnya <= 15
  *   3. abstain, dengan alasan
+ * Urutan 1-2 ini hasil ukut 20 aksi pertama dunia (lihat komentar di badan fungsi).
  * Gerbang biaya/plafon selalu di depan: aksi yang tidak bisa dibayar kas faksi bukan opsi.
  */
 export function decide({ agent, factionId, regions, faction, caps, gas, capRAID, capENTRENCH }) {
@@ -116,7 +120,25 @@ export function decide({ agent, factionId, regions, faction, caps, gas, capRAID,
     capENTRENCH && Number(faction.balance) >= Number(caps.entrenchCost) && Number(caps.perAction) >= Number(caps.entrenchCost);
 
   const open = regions.filter((r) => r.open);
+  const mine = open.filter((r) => Number(r.owner) === Number(factionId));
   const targets = open.filter((r) => Number(r.owner) !== Number(factionId));
+
+  // DIPERBAIKI dari data lapangan, bukan dari kepala: 20 aksi pertama dunia ini 100% RAID dan
+  // 0% ENTRENCH, karena cabang raid selalu bertemu target (ambang hanya bisa TURUN) sehingga
+  // ENTRENCH tidak pernah tercapai — separuh aturan dunia tidak pernah diuji di chain.
+  // Sekarang: wilayah sendiri yang sudah lemah dipertahankan lebih dulu. Ini juga menahan
+  // umpan balik jahat yang terukur (Vhal'Mor: kekuatan 20 -> 0, ambang 11 -> 4, jadi pinata).
+  if (canEntrench && mine.length) {
+    const weak = mine.slice().sort((a, b) => Number(a.strength) - Number(b.strength))[0];
+    if (Number(weak.strength) < DEFEND_BELOW) {
+      return {
+        action: "ENTRENCH",
+        regionId: weak.id,
+        cost: caps.entrenchCost,
+        reason: `bertahan: wilayah sendiri tinggal ${weak.strength} (ambang ${weak.threshold}), diperebutkan terus`,
+      };
+    }
+  }
 
   if (canRaid && targets.length) {
     const scored = targets
@@ -136,19 +158,6 @@ export function decide({ agent, factionId, regions, faction, caps, gas, capRAID,
         regionId: r.id,
         cost: caps.raidCost,
         reason: `pool ${r.pool}, ambang ${r.threshold}, kekuatan ${r.strength} — skor ${scored[0].score.toFixed(2)}`,
-      };
-    }
-  }
-
-  const mine = open.filter((r) => Number(r.owner) === Number(factionId));
-  if (canEntrench && mine.length) {
-    const weak = mine.slice().sort((a, b) => Number(a.strength) - Number(b.strength))[0];
-    if (Number(weak.strength) < 30) {
-      return {
-        action: "ENTRENCH",
-        regionId: weak.id,
-        cost: caps.entrenchCost,
-        reason: `wilayah sendiri paling lemah: ${weak.strength}`,
       };
     }
   }
