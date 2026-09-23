@@ -86,6 +86,16 @@ Scripts that **move money** (all need `--broadcast`): `Deploy.s.sol` (first brin
 12. **`cast balance --unit bnb` is invalid** (units are wei/gwei/ether/…); it fails silently under
     `2>nul`. Use `--unit ether` or JSON-RPC.
 
+13. **`node --check` does not catch ESM/CJS mismatches.** The single-instance lock was written with
+    `require("node:fs")` inside a `.mjs` file; it passed `node --check` cleanly and would only have
+    failed at *runtime, on exit* — the one path that never runs in a smoke test. Static imports
+    only in `.mjs`, and exercise the exit path (Ctrl+C / normal end), not just the happy loop.
+14. **Only one agent loop per machine.** Two processes sharing the same agent keys collide on
+    nonces, which is the most likely source of the dangling commitments above. `agent/rune-agent.lock`
+    holds the live PID and a second instance refuses with an explanation; a stale lock (dead PID) is
+    taken over automatically, and the lock file is git-ignored because it is machine state.
+    Verified: second instance prints the refusal and exits non-zero.
+
 ## Design traps worth naming
 
 - **Balance the books per owner, not per contract.** Checking `address(this).balance` looked

@@ -19,3 +19,6 @@ Thumbs.db
 # Riwayat aksi agen: berisi secret commit dan alamat lokal. Bukti yang benar ada di
 # chain (event Action + transcriptHash), jadi file ini tidak perlu ikut repo.
 agent/history/
+
+# State runtime lokal: pid satu-satunya loop agen yang hidup.
+agent/*.lock

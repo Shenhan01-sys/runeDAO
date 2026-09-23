@@ -24,7 +24,7 @@
 //   npm run agent          terus-menerus sampai Ctrl+C
 
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -666,7 +666,33 @@ export async function tick(deps) {
   return results;
 }
 
+/// Satu loop per mesin. Dua proses dengan kunci agen yang sama saling mengganggu nonce, dan
+/// itu tersangka paling mungkin untuk commit yang menggantung berjam-jam (terukur: target blok
+/// 132.642.728 ditinggalkan ~7.100 blok, dan tabrakan loop terjadi setiap kali saya menyalakan
+/// yang baru tanpa mematikan yang lama). Lock file + cek hidup proses, bukan ingatan operator.
+const LOCK = join(HERE, "rune-agent.lock");
+
+function otherInstanceAlive() {
+  if (!existsSync(LOCK)) return null;
+  try {
+    const pid = Number(readFileSync(LOCK, "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return null;
+    process.kill(pid, 0); // tidak mengirim sinyal, hanya menguji apakah prosesnya ada
+    return pid;
+  } catch {
+    return null; // lock basi (proses sudah mati) -> boleh diambil alih
+  }
+}
+
 async function main() {
+  const clash = otherInstanceAlive();
+  if (clash) {
+    console.error(`sudah ada instance rune-agent yang hidup (pid ${clash}) - berhenti, jangan dua loop`);
+    console.error("kalau yakin itu proses yatim: hapus agent/rune-agent.lock lalu jalankan lagi");
+    process.exit(1);
+  }
+  writeFileSync(LOCK, String(process.pid), { encoding: "utf8" });
+
   const E = loadEnv();
   const WORLD = E.WORLD_ADDRESS;
   const REGISTRY = E.REGISTRY_ADDRESS;
@@ -677,7 +703,7 @@ async function main() {
   const once = process.argv.includes("--once");
 
   console.log(`runeDAO agent — world ${WORLD}`);
-  console.log(`rpc ${rpcUrl}  tick ${TICK_SECONDS}s  sekali=${once}`);
+  console.log(`rpc ${rpcUrl}  tick ${TICK_SECONDS}s  sekali=${once}  pid ${process.pid}`);
 
   for (;;) {
     const t0 = Date.now();
@@ -688,8 +714,22 @@ async function main() {
 }
 
 if (process.argv[1]?.replace(/\\/g, "/").endsWith("agent/rune-agent.mjs")) {
-  main().catch((e) => {
-    console.error("FATAL", e);
-    process.exit(1);
+  const release = () => {
+    try {
+      if (readFileSync(LOCK, "utf8").trim() === String(process.pid)) rmSync(LOCK, { force: true });
+    } catch {
+      /* lock sudah hilang, tidak perlu ribut saat keluar */
+    }
+  };
+  process.on("exit", release);
+  process.on("SIGINT", () => {
+    release();
+    process.exit(0);
   });
+  main()
+    .catch((e) => {
+      console.error("FATAL", e);
+      release();
+      process.exit(1);
+    });
 }
