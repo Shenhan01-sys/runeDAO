@@ -88,6 +88,7 @@ forge test                  # 81 passed (26 registry · 25 treasury · 30 world)
 node tools/make-env.mjs     # fresh burner testnet keys (never prints a value)
 node tools/record-addresses.mjs   # writes deployed addresses, verified against the chain
 
+npm run page                # regenerate web/index.html (self-contained snapshot of the chain)
 npm run world               # read-only: regions, reputations, and each agent's next decision
 npm run readback            # asserts the authority chain from live state on chain 97
 npm run agent:once          # one unattended turn: 3 agents, 6 transactions
@@ -96,7 +97,13 @@ npm run agent               # keep the world moving (TICK_SECONDS, default 420)
 
 Layout: `contracts/` (3) · `test/` (3 files, 81 tests) · `script/` (Deploy, Seed, Fund,
 ReplaceWorld, Readback) · `agent/` (pure decision policy + runner + terminal world view) ·
-`tools/` (env + address bookkeeping) · `vault/` (reasoning, evidence, limits).
+`tools/` (env, address bookkeeping, page builder) · `web/` (the generated world page) ·
+`vault/` (reasoning, evidence, limits).
+
+`web/index.html` is committed on purpose: it is a **snapshot generated from chain data**, not a
+live feed, so opening it over `file://` shows exactly what was on chain at the block printed at
+the top of the page. That also means the page cannot quietly disagree with a demo that was
+recorded earlier.
 
 ## What this project does **not** prove
 

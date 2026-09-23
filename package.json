@@ -14,7 +14,8 @@
     "readback": "forge script script/Readback.s.sol --rpc-url https://bsc-testnet.publicnode.com",
     "agent": "node agent/rune-agent.mjs",
     "agent:once": "node agent/rune-agent.mjs --once",
-    "world": "node agent/show-world.mjs"
+    "world": "node agent/show-world.mjs",
+    "page": "node tools/build-page.mjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
