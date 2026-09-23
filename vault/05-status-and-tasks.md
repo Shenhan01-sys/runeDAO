@@ -51,6 +51,25 @@ Finalists 14 Oct · Demo Day 31 Oct.
   rather than sold away.
 - **Testnet only.** The rules accept it; the numbers stay honest and no real value is at risk.
 
+## Throughput knobs, and what actually binds
+
+As of 23 Sep ~05:00 UTC the world is **idle until the UTC day rolls**, because all three agents
+hit the daily ceiling and abstain with numbers in their reason (A 0.0031/0.0032, B 0.0032/0.0032,
+C 0.0031/**0.0028** — C's is lower because its reputation did).
+
+Order of what limits action volume, cheapest first:
+
+| knob | who may change it | current | cost of raising it |
+|---|---|---|---|
+| `dailyCap` (per faction) | the guardian, `setPolicy(factionId, perAction, daily, minInterval)` | 0.002 base → 0.0032 effective at tier ≥ 3, i.e. **~10 raids/day/faction** | free; hard ceiling is 0.05 base |
+| faction cash | anyone, `deposit{value:}` / `script/Fund.s.sol` | 0.003 → 10 raids | recirculates: a lost raid's cost becomes the region's pool and the next winner collects it, so this is not consumed globally |
+| agent gas | platform wallet via `script/Fund.s.sol` | 0.001 each ≈ 27 actions | **this is the real money**: ~0.000037 BNB per action, paid from the agent's own balance |
+
+So raising `dailyCap` is free and raises ceiling to ~13/day immediately; the durable constraint by
+end of the week is **gas on the platform wallet**, which a faucet claim replenishes. Deliberate
+choice, not an oversight: a world that acts 30 times a day with honest ceilings is worth more here
+than one that acts 300 times a day with ceilings we removed to make the demo busier.
+
 ## Things that must not be said in the submission
 
 From [03](03-evidence-and-limits.md), repeated here because it is the easiest place to drift:
