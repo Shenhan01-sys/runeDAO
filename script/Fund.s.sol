@@ -18,6 +18,8 @@ contract Fund is Script {
     /// @notice Sasaran kas faksi. Dibuat tidak lebih tinggi dari plafon harian efektif
     ///     (0,002 dasar x bonus reputasi) supaya "kas" tidak pernah yang membatasi.
     uint256 internal constant FACTION_CASH_TARGET = 0.003 ether;
+    /// @notice Sisa yang sengaja tidak disentuh supaya script lain masih bisa jalan.
+    uint256 internal constant GAS_RESERVE = 0.0005 ether;
 
     function run() external {
         RuneTreasury treasury = RuneTreasury(vm.envAddress("TREASURY_ADDRESS"));
@@ -36,19 +38,38 @@ contract Fund is Script {
             uint96 factionId = idx + 1;
             address agent = vm.envAddress(string(abi.encodePacked("FACTION_", tag, "_AGENT_ADDRESS")));
 
+            // Dua gerbang yang sebelumnya tidak ada: jalur gas tidak mengecek kemampuan bayar
+            // (transfer yang gagal akan me-revert seluruh script di tengah loop), dan langkah
+            // yang DILEWATKAN tidak dicatat, jadi operator tidak bisa membedakan "sudah penuh"
+            // dari "tidak cukup dana". Yang kedua itu cara script pendanaan berbohong dengan sopan.
             if (agent.balance < AGENT_GAS_TARGET) {
                 uint256 topup = AGENT_GAS_TARGET - agent.balance;
-                payable(agent).transfer(topup);
-                console.log("topup gas untuk faction", factionId);
-                console.log("  (wei)", topup);
+                if (deployer.balance > topup + GAS_RESERVE) {
+                    payable(agent).transfer(topup);
+                    console.log("topup gas untuk faction", factionId);
+                    console.log("  (wei)", topup);
+                } else {
+                    console.log("LEWAT: topup gas faction", factionId);
+                    console.log("  butuh (wei)", topup);
+                console.log("  saldo deployer (wei)", deployer.balance);
+                }
+            } else {
+                console.log("sudah cukup gas: faction", factionId);
             }
 
             RuneTreasury.Faction memory f = treasury.getFaction(factionId);
             uint256 need = FACTION_CASH_TARGET > f.balance ? FACTION_CASH_TARGET - f.balance : 0;
-            if (need > 0 && deployer.balance > need) {
+            if (need == 0) {
+                console.log("sudah cukup kas: faction", factionId);
+                continue;
+            }
+            if (deployer.balance > need + GAS_RESERVE) {
                 treasury.deposit{value: need}(factionId);
                 console.log("topup kas faksi", factionId);
                 console.log("  (wei)", need);
+            } else {
+                console.log("LEWAT: topup kas faksi", factionId);
+                console.log("  butuh (wei)", need, " saldo deployer (wei)", deployer.balance);
             }
         }
 

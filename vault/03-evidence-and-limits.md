@@ -70,7 +70,7 @@ happened and are in the file.
 | "the world is unmanipulable" | a block producer can nudge the target block hash; VRF remains the upgrade, unimplemented |
 | "any LLM verified anything" | none is in the decision path |
 | "the frontend shows the world" | does not exist yet; `show-world.mjs` is a terminal view reading the same contract |
-| "agents sustain themselves" | faction funds recirculate through pools, but the platform top-up wallet is at 0.000757 BNB; the loop will eventually stop for money, and a faucet claim needs a human (bot-check, 12 h cooldown) |
+| "agents sustain themselves" | faction funds recirculate through pools, but a faction that hits zero has no in-contract route back — it abstains until `script/Fund.s.sol` is run by someone. Funded to 0.003/faction on 23 Sep ~03:45 UTC, which is roughly a day of the current action rate, **not** self-sustaining |
 
 ## Honest numbers we should not round
 

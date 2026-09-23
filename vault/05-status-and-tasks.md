@@ -28,8 +28,10 @@ Finalists 14 Oct · Demo Day 31 Oct.
 3. **Keep the agents running.** This is the only task where elapsed calendar time is the product:
    a world with nine actions looks like a demo, a world with a few hundred actions spread over
    five days looks like a system. Nothing else we can build substitutes for it.
-   Watch two failure modes: the platform top-up wallet (0.000757 BNB at last check) and faction
-   treasuries draining to the point where agents honestly abstain.
+   Watch two failure modes: faction treasuries draining to the point where agents honestly
+   abstain (topped up on 23 Sep ~03:45 UTC; roughly a day of runway at the current rate), and the
+   platform wallet's own balance. **Numbers here are snapshots** — a re-read of the same wallet
+   minutes later disagreed with this file by 27×, see [04](04-technical-reference.md).
 4. **World viewer, built from `eth_getLogs`.** Read-only, no wallet, no framework. It must render
    the same numbers `show-world` prints, from the same contracts — and it must print the limits in
    [03](03-evidence-and-limits.md) on the page, not in a footnote. This is the artefact that makes

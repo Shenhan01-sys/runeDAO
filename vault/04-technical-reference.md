@@ -96,5 +96,13 @@ Scripts that **move money** (all need `--broadcast`): `Deploy.s.sol` (first brin
   `abandon()` it becomes permanent denial of service on the agent's own account.
 - **Log secrets when they become binding, not when they are used.** The crash window between
   commit and resolve is exactly where an agent becomes unrecoverable.
+- **A balance read is a timestamp, not a fact.** `Fund.s.sol` was nearly left unrun because a
+  number measured at 03:11 UTC ("0.000757 BNB, we need a faucet") was still being quoted at
+  03:44 — by which time the same wallet held 0.020506 BNB (confirmed identically on
+  publicnode, rpc.publicnode and drpc). Re-read any balance before it becomes a blocker claim,
+  especially on a key shared with another live project on this machine.
+- **A script that silently skips a step is the polite way to lie.** Both funding paths in
+  `Fund.s.sol` lacked an affordability guard and logged nothing when skipping, so "already
+  funded" and "out of money" looked identical from the outside. Each branch now logs its reason.
 - **A docstring that promises protection must be matched by a gate.** The line that claimed agents
   "cannot spend another faction's treasury" was written *before* the check existed.
