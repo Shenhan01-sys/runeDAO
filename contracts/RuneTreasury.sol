@@ -42,6 +42,10 @@ contract RuneTreasury is Ownable {
 
     struct Faction {
         address guardian;
+        /// @notice Saldo faksi ini sendiri. Bukan `address(this).balance`: tanpa pencatatan per
+        ///     faksi, satu faksi bisa membelanjakan dana yang disetor faksi lain — kontrak akan
+        ///     terlihat aman padahal hanya kas bersama yang dijaga rata-rata.
+        uint96 balance;
         uint96 perActionCap;
         uint96 dailyCap;
         uint32 minInterval;
@@ -96,6 +100,7 @@ contract RuneTreasury is Ownable {
         if (_factions[factionId].exists) revert AlreadyExists();
         _factions[factionId] = Faction({
             guardian: msg.sender,
+            balance: 0,
             // Mulai dari nol: izin belanja harus diminta, tidak diwarisi.
             perActionCap: 0,
             dailyCap: 0,
@@ -142,8 +147,23 @@ contract RuneTreasury is Ownable {
         emit FactionFrozen(factionId, frozen);
     }
 
+    /// @notice Setoran ke kas faksi. Siapa pun boleh menambah; yang membatasi adalah pengeluaran.
+    /// @dev Faksi mencatat `balance`-nya sendiri, dan kontrak ini sengaja tidak punya
+    ///      `receive()`: transfer polos tanpa menyebut faksi akan jadi dana tak bertuan, jadi
+    ///      lebih baik ditolak di depan.
     function deposit(uint96 factionId) external payable {
-        _requireFaction(factionId);
+        Faction storage f = _requireFaction(factionId);
+        f.balance += uint96(msg.value);
+        emit Deposited(factionId, msg.sender, uint96(msg.value));
+    }
+
+    /// @dev Satu panggilan yang memindahkan DAN mencatat: `world` menyerahkan jarahan ke kas
+    ///      faksi. Kalau pencatatannya terpisah dari pemindahannya, selalu ada jendela di mana
+    ///      uangnya sudah pindah tapi bukunya belum.
+    function credit(uint96 factionId) external payable {
+        if (msg.sender != REGISTRY.world()) revert OnlyWorld();
+        Faction storage f = _requireFaction(factionId);
+        f.balance += uint96(msg.value);
         emit Deposited(factionId, msg.sender, uint96(msg.value));
     }
 
@@ -179,13 +199,16 @@ contract RuneTreasury is Ownable {
         if (spent + amount > _scaledCap(f.dailyCap, tier)) revert AboveDailyCap();
 
         if (f.spends > 0 && block.timestamp < uint256(f.lastSpendAt) + f.minInterval) revert TooSoon();
-        if (address(this).balance < amount) revert NotEnoughFunds();
+        // Yang ditanya adalah saldo FAKSI ini, bukan saldo kontrak. Membedanya di sini yang
+        // membuat satu faksi tidak bisa diam-diam membelanjakan setoran faksi lain.
+        if (f.balance < amount) revert NotEnoughFunds();
 
         f.dayIndex = day;
         f.spentToday = spent + amount;
         f.lastSpendAt = uint64(block.timestamp);
         f.totalSpent += amount;
         f.spends += 1;
+        f.balance -= amount;
 
         (bool ok, ) = target.call{value: amount}("");
         if (!ok) revert TransferFailed();
@@ -208,6 +231,12 @@ contract RuneTreasury is Ownable {
         return _requireFaction(factionId);
     }
 
+    /// @notice Ada tidaknya faksi. `getFaction` revert untuk yang tak dikenal, jadi pembacaan
+    ///     yang hanya ingin bertanya "sudah ada?" butuh fungsi ini, bukan try/catch.
+    function factionExists(uint96 factionId) external view returns (bool) {
+        return _factions[factionId].exists;
+    }
+
     function isTargetAllowed(uint96 factionId, address target) external view returns (bool) {
         return _allowedTargets[factionId][target];
     }
@@ -216,7 +245,8 @@ contract RuneTreasury is Ownable {
         return _factionIds;
     }
 
-    receive() external payable {}
+    // Tidak ada `receive()`: dana yang masuk tanpa menyebut faksi akan jadi dana tak bertuan
+    // yang tidak bisa dibelanjakan siapa pun. Lebih baik transfer polos ditolak di depan.
 
     // ------------------------------------------------------------------ internal
 

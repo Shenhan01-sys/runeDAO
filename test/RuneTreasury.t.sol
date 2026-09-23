@@ -48,7 +48,12 @@ contract RuneTreasuryTest is Test {
         registry.registerAgent(FACTION, agent, "Ashfen Raider");
         vm.stopPrank();
 
-        vm.deal(address(treasury), 1 ether);
+        // Dana masuk lewat `deposit`, bukan `vm.deal(alamat kontrak)`: sejak kas mencatat
+        // saldo PER FAKSI, menaruh BNB di alamat treasury saja tidak membuatnya bisa
+        // dibelanjakan — dan itu memang yang kita mau (lihat test_unattributedFunds...).
+        vm.deal(guardian, 1 ether);
+        vm.prank(guardian);
+        treasury.deposit{value: 1 ether}(FACTION);
     }
 
     receive() external payable {}
@@ -154,17 +159,19 @@ contract RuneTreasuryTest is Test {
     }
 
     /// Plafon harian melacak JUMLAH, bukan jumlah transaksi: seratus aksi kecil tidak lolos.
+    /// `minInterval` dimatikan di sini supaya yang diuji benar-benar gerbang HARIAN, bukan
+    /// gerbang jeda — sebelumnya tes ini gagal karena TooSoon, dan itu salah tesnya.
     function test_dailyCapAccumulatesAcrossSpends() public {
+        _isolateDailyGate();
         (, uint96 daily) = treasury.effectiveCaps(agent);
         uint96 step = daily / 3;
 
         for (uint256 i = 0; i < 3; i++) {
             treasury.spend(agent, address(this), step, PROOF);
-            vm.warp(block.timestamp + 61);
+            vm.warp(block.timestamp + 1);
         }
         assertEq(uint256(treasury.getFaction(FACTION).spends), 3);
 
-        vm.warp(block.timestamp + 61);
         vm.expectRevert(RuneTreasury.AboveDailyCap.selector);
         treasury.spend(agent, address(this), step, PROOF);
     }
@@ -172,12 +179,13 @@ contract RuneTreasuryTest is Test {
     /// Hari UTC baru membuka kembali plafon — dan itu harus terjadi sendiri, bukan karena
     /// kami mereset state.
     function test_dailyCapResetsOnNewUtcDay() public {
+        _isolateDailyGate();
         (, uint96 daily) = treasury.effectiveCaps(agent);
         uint96 step = daily / 3;
 
         for (uint256 i = 0; i < 3; i++) {
             treasury.spend(agent, address(this), step, PROOF);
-            vm.warp(block.timestamp + 61);
+            vm.warp(block.timestamp + 1);
         }
 
         vm.expectRevert(RuneTreasury.AboveDailyCap.selector);
@@ -187,6 +195,14 @@ contract RuneTreasuryTest is Test {
         vm.warp(((block.timestamp / 1 days) + 1) * 1 days + 1);
         treasury.spend(agent, address(this), step, PROOF);
         assertEq(uint256(treasury.getFaction(FACTION).spends), 4);
+    }
+
+    /// @dev Pasang jeda 0 dan ambang per-aksi di atas langkah tes, supaya hanya gerbang harian
+    ///      yang bisa menolak.
+    function _isolateDailyGate() internal {
+        (uint96 perAction, uint96 daily) = treasury.effectiveCaps(agent);
+        vm.prank(guardian);
+        treasury.setPolicy(FACTION, perAction, daily, 0);
     }
 
     function test_rejectSpendBeforeMinInterval() public {
@@ -203,10 +219,36 @@ contract RuneTreasuryTest is Test {
         assertEq(uint256(treasury.getFaction(FACTION).spends), 2);
     }
 
+    /// Kas mencatat saldo PER FAKSI. Faksi yang belum setor tidak bisa belanja, walaupun
+    /// kontraknya secara keseluruhan memegang BNB faksi lain — inilah alasan perubahan ini.
     function test_rejectSpendFromEmptyTreasury() public {
-        vm.deal(address(treasury), 100);
+        address otherGuardian = address(0xB0);
+        address otherAgent = address(0xB9);
+        uint96 otherFaction = 42;
+
+        // FACTION sudah punya 1 ether (setUp); faksi 42 belum punya apa-apa.
+        vm.startPrank(otherGuardian);
+        treasury.createFaction(otherFaction);
+        treasury.setPolicy(otherFaction, PER_ACTION, DAILY, 0);
+        treasury.setTarget(otherFaction, address(this), true);
+        registry.registerAgent(otherFaction, otherAgent, "Other");
+        vm.stopPrank();
+
+        assertEq(address(treasury).balance, 1 ether, "kas kontrak berisi uang faksi lain");
+        assertEq(uint256(treasury.getFaction(otherFaction).balance), 0);
+
         vm.expectRevert(RuneTreasury.NotEnoughFunds.selector);
-        treasury.spend(agent, address(this), 101, PROOF);
+        treasury.spend(otherAgent, address(this), 1, PROOF);
+    }
+
+    /// Kontrak kas sengaja tidak punya `receive()`: transfer polos ditolak, bukan diterima
+    /// lalu jadi dana tak bertuan yang tidak bisa dibelanjakan siapa pun.
+    function test_rejectBareTransferWithoutFaction() public {
+        vm.deal(stranger, 1 ether);
+        vm.prank(stranger);
+        (bool ok, ) = address(treasury).call{value: 1 ether}("");
+        assertFalse(ok, "transfer polos harus ditolak");
+        assertEq(uint256(treasury.getFaction(FACTION).balance), 1 ether);
     }
 
     function test_rejectTransferToTargetThatCannotReceive() public {
