@@ -14,11 +14,28 @@ submission — these are snapshots with a timestamp, not constants.
 | Reputation moves **down** on chain | same run; `show-world` reads `getAgent` | agent C: 500 → **460**, tier 5 → 4 after its first failure |
 | A failed raid becomes a bounty | `show-world` | region 2 pool `0` → **0.0003 BNB**, strength 20 → 21, owner still neutral |
 | A won raid pays the attacker, not the loser | `test_...` + on chain | regions 0 and 1 changed owner to factions 2 and 1; their pools returned to 0 |
-| The dice are the documented formula | `test_worldRollsMatchTheDocumentedFormula` recomputes `keccak(secret ‖ blockhash(target)) % 20 + 1` | matches the emitted `roll` |
+| The dice are the documented formula | `test_worldRollsMatchTheDocumentedFormula` recomputes `keccak(secret ‖ blockhash(target)) % 20 + 1` | matches the emitted `roll`; 23 live rolls so far: 12, 18, 4, 14, 7, 2, 16, 15, 3, 2, 12, 13, 2, 13, 13, 6, 10, 8, 2, 5, … |
+| **Both** action types actually reach the chain | `agent/history/actions.jsonl` + `npm run world` | 21 RAID and **2 ENTRENCH**; both entrenched rolls raised strength as the rule says (roll 8 → +2 on region 0; roll 13 → +3 on region 3). The first 20 world actions were **100% RAID, 0% ENTRENCH** — a policy ordering bug, fixed by defending weak owned regions first (`DEFEND_BELOW = 10`); see the note below on how we know |
+| Reputation keeps falling on real failures | `npm run world` reads `getAgent` | agent C: 500 → 460 → 380 → **350**, tier 5 → 4 → **3**, 5 failures in 7 actions |
 | Cross-faction spend is refused | `test_rejectCrossFactionAgentDrain` | reverts `GuardianMismatch` |
 | One faction cannot spend another's deposit | `test_oneFactionCannotSpendAnotherFactionDeposit` | reverts `NotEnoughFunds` while the contract holds 1 BNB of someone else's money |
 | Gas is measured, not assumed | `eth_gasPrice` on chain 97 | **0.1 gwei** (`100000000` wei) → one full action ≈ **0.000037 BNB** |
 | The world can be replaced without touching the money | `script/ReplaceWorld.s.sol` | treasury held 0.0075 BNB across the swap; second world live at the addresses in [04](04-technical-reference.md) |
+
+## Emergent behaviour we measured and did not tune away
+
+**Capturing a region weakens it, and only failure strengthens it.** A win applies `strength − 6`;
+a lost raid applies `strength + 1`. Contested regions therefore slide toward the floor: Vhal'Mor
+went 20 → 0 and its raid threshold 11 → 4 (≈85% success), Abu Kelabu reached 1. Left unfixed on
+purpose: repairing the rule means deploying a new world, and that erases the ~23 unattended actions
+that are the actual demo material for beat 1. It is recorded here as measured behaviour, and the
+agent-side `DEFEND_BELOW` is what currently damps it.
+
+**A faction whose treasury hits zero cannot climb back.** Money does not leave the system — a failed
+raid's cost becomes the region's pool, and the next winner collects it — but a broke faction can no
+longer pay an entry cost, so it can neither raid nor entrench. It abstains honestly (visible in the
+ledger) and has to be topped up from outside (`script/Fund.s.sol`). Any v2 of the rules should want
+either a recovery route or a lower entry cost; this is a known hole, not an unnoticed one.
 
 ### Live world snapshot — 23 Sep 2026, 03:15 UTC, from `npm run world`
 
