@@ -9,7 +9,7 @@ submission — these are snapshots with a timestamp, not constants.
 | claim | how it is reproducible | measured |
 |---|---|---|
 | Contracts run on BSC testnet | `npm run readback` (reads `registry.world()`, `treasury.REGISTRY()`, `world.REGISTRY/TREASURY()` from chain) | all four equalities `true`, chainId 97 |
-| Unit coverage of the rules | `forge test` | **81 passed / 0 failed** — 26 registry, 25 treasury, 30 world |
+| Unit coverage of the rules | `forge test` | **89 passed / 0 failed** — 26 registry, 33 treasury, 30 world |
 | Agents broadcast their own transactions | `npm run agent:once` from three agent EOAs, platform key uninvolved | 6 transactions, one per commit/resolve |
 | Reputation moves **down** on chain | same run; `show-world` reads `getAgent` | agent C: 500 → **460**, tier 5 → 4 after its first failure |
 | A failed raid becomes a bounty | `show-world` | region 2 pool `0` → **0.0003 BNB**, strength 20 → 21, owner still neutral |

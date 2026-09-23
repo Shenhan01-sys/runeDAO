@@ -75,6 +75,14 @@ secrets can target a result. Stated limit, not hidden: whoever mines `targetBloc
 influence over its own block hash. Enough for a game; not enough for real stakes. Chainlink VRF v2
 is confirmed present on chain 97 (`0x6A2AAd07…c82f`) as the upgrade behind the same interface.
 
+**Build hygiene, stated accurately rather than aspirationally.** `forge build` compiles clean but
+reports **38 `unsafe-typecast` lint warnings**, almost all `uint64(block.timestamp)` — truncating a
+256-bit timestamp to 64 bits, which is safe until the year 2554 and is exactly the sort of cast the
+lint exists to make someone think about. `forge build --deny warnings` therefore **fails today**;
+the contracts that matter carry explicit `forge-lint: disable-next-line` markers where the bound is
+proved in code. If you see a README promising `--deny warnings` here, it was written before the
+test suite grew — that is a documentation bug, not a passing build.
+
 `abandon()` exists because a stuck commitment would otherwise brick an agent forever — and it is
 **charged as a failure**, so "reroll until I like it" costs reputation, which costs budget.
 
@@ -107,8 +115,8 @@ reputation — `recordOutcome` accepts exactly one caller, the game.
 
 ```bash
 npm install                 # @openzeppelin/contracts 5.1.0 + viem 2.56.5, this repo's own
-forge build --deny warnings
-forge test                  # 81 passed (26 registry · 25 treasury · 30 world)
+forge build                 # compiles; see the lint note below
+forge test                  # 89 passed, 0 failed (26 registry · 33 treasury · 30 world)
 
 node tools/make-env.mjs     # fresh burner testnet keys (never prints a value)
 node tools/record-addresses.mjs   # writes deployed addresses, verified against the chain

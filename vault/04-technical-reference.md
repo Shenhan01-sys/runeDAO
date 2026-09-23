@@ -38,7 +38,7 @@ primitives exist, we chose the cheaper one, and here is what it does not buy us"
 
 ```bash
 npm install                      # @openzeppelin/contracts 5.1.0 + viem 2.56.5, this repo's own
-forge build --deny warnings
+forge build            # clean compile; 38 unsafe-typecast lint notes remain (see README)
 forge test                       # 81 passed
 npm run world                    # read-only: regions, reputations, next decision per agent
 npm run readback                 # forge script; asserts the authority chain from live state
