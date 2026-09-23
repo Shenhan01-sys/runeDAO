@@ -195,9 +195,12 @@ export function commitHashOf({ secret, targetBlock, address, nonce }) {
 
 // ------------------------------------------------------------------ state chain
 
-export function makeClient(E) {
+/// Index RPC dipilih eksplisit supaya loop bisa berpindah endpoint tanpa membangun ulang
+/// daftar kandidat (dan tanpa kemungkinan dua klien menunjuk endpoint yang sama).
+export function makeClient(E, index = 0) {
   const urls = [E.RPC_URL, E.RPC_URL_ALT, "https://bsc-testnet.publicnode.com", "https://bsc-testnet-rpc.publicnode.com"].filter(Boolean);
-  return { client: createPublicClient({ transport: http(urls[0]) }), rpcUrl: urls[0], urls };
+  const rpcUrl = urls[index % urls.length];
+  return { client: createPublicClient({ transport: http(rpcUrl) }), rpcUrl, urls };
 }
 
 /** viem tidak punya waitForBlockNumber; nomor blok harus dibaca ulang, bukan dipercaya cache. */
@@ -699,17 +702,41 @@ async function main() {
   const TREASURY = E.TREASURY_ADDRESS;
   if (!(WORLD && REGISTRY && TREASURY)) throw new Error(".env belum berisi REGISTRY/TREASURY/WORLD_ADDRESS");
 
-  const { client, rpcUrl } = makeClient(E);
+  const { urls } = makeClient(E);
+  let i = 0;
+  let { client, rpcUrl } = makeClient(E, i);
   const once = process.argv.includes("--once");
 
   console.log(`runeDAO agent — world ${WORLD}`);
   console.log(`rpc ${rpcUrl}  tick ${TICK_SECONDS}s  sekali=${once}  pid ${process.pid}`);
 
+  // Satu permintaan RPC yang gagal bukan alasan untuk berhenti. Terukur: loop ini mati pada
+  // 06:28:36 UTC karena satu `fetch failed` pada eth_call REGION_COUNT() dan baru ketahuan
+  // 3 jam 13 menit kemudian — waktu yang tidak bisa diambil kembali, karena riwayat aksi
+  // tanpa-manusia justru bahan demo utamanya. Jadi: tangkap, catat, ganti endpoint, mundur
+  // eksponensial, lanjut. Yang boleh mematikan proses hanya kesalahan konfigurasi.
+  let misses = 0;
   for (;;) {
     const t0 = Date.now();
-    await tick({ client, rpcUrl, E, WORLD, REGISTRY, TREASURY });
+    try {
+      await tick({ client, rpcUrl, E, WORLD, REGISTRY, TREASURY });
+      if (misses > 0) console.log(`pulih setelah ${misses} tick gagal`);
+      misses = 0;
+    } catch (err) {
+      misses += 1;
+      const msg = String(err?.shortMessage ?? err?.message ?? err).split("\n")[0].slice(0, 160);
+      console.log(`TICK GAGAL #${misses}: ${msg}`);
+      log({ t: Date.now(), tag: "loop", event: "tick-error", message: msg, misses });
+      if (/fetch failed|HTTP request failed|Timed out|520|408|socket hang up/i.test(msg)) {
+        i = (i + 1) % urls.length;
+        ({ client, rpcUrl } = makeClient(E, i));
+        console.log(`  pindah rpc -> ${rpcUrl}`);
+      }
+    }
     if (once) break;
-    await new Promise((r) => setTimeout(r, Math.max(0, TICK_SECONDS * 1000 - (Date.now() - t0))));
+    const backoff = Math.min(600_000, 30_000 * 2 ** Math.min(misses, 4));
+    const wait = misses > 0 ? backoff : Math.max(0, TICK_SECONDS * 1000 - (Date.now() - t0));
+    await new Promise((r) => setTimeout(r, wait));
   }
 }
 
