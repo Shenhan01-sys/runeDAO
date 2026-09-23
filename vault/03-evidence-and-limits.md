@@ -20,6 +20,8 @@ submission — these are snapshots with a timestamp, not constants.
 | Cross-faction spend is refused | `test_rejectCrossFactionAgentDrain` | reverts `GuardianMismatch` |
 | One faction cannot spend another's deposit | `test_oneFactionCannotSpendAnotherFactionDeposit` | reverts `NotEnoughFunds` while the contract holds 1 BNB of someone else's money |
 | Gas is measured, not assumed | `eth_gasPrice` on chain 97 | **0.1 gwei** (`100000000` wei) → one full action ≈ **0.000037 BNB** |
+| **Reputation tightens an agent's real budget, live** | `npm run world` reads `getAgent` + `effectiveCaps` from chain | agent C: reputation **260 / tier 2** → per-action ceiling **0.0007 BNB**, while A (605 / tier 6) and B (560 / tier 5) get **0.0008**. 12.5% smaller, caused only by 8 failures in 12 actions — this replaces the earlier "not yet observable" row |
+| Stuck commitments are escaped, and *detected* | `agent/history/actions.jsonl` + `stuckReport()` | 2 `abandon()` transactions mined; the streak metric reports `A:3x B:3x C:9x`, the very failures the old `stuck` counter reported as **0** |
 | The world can be replaced without touching the money | `script/ReplaceWorld.s.sol` | treasury held 0.0075 BNB across the swap; second world live at the addresses in [04](04-technical-reference.md) |
 
 ## Emergent behaviour we measured and did not tune away
@@ -66,7 +68,8 @@ happened and are in the file.
 |---|---|
 | "contract source verified on BscScan" | **not done and probably not possible here**: explorer source-verification is deprecated on V1 and paid on V2 for BSC. Verification is by RPC + `cast call`, and the README says so |
 | "address resolves on `testnet.bscscan.com`" | unconfirmed for these contracts (that check needs a browser; the explorer returns 403 to our tooling). **Hard submission requirement** — confirm before submitting |
-| "reputation visibly tightens an agent's budget" | true in unit tests, **not yet observable live**: the tier bonus saturates at 3, so agent C at 380 still gets the full multiplier. The ceiling only bites below reputation 300. Either run longer or present the unit test, not a live screenshot |
+| ~~"reputation visibly tightens an agent's budget"~~ | **now proven live** (see Proven, tier 2 → 0.0007 vs tier 6 → 0.0008). Kept here as history: it was false when written, and the reason it was false is that `MAX_TIER_BONUS = 3` makes every tier ≥ 3 identical, so only dropping *below* 300 reputation changes anything |
+| "a faction can be throttled into stillness" | true and correct behaviour: after `Fund.s.sol`, all three agents hit the **daily** ceiling and abstained with explicit reasons (A 0.0031/0.0032, B 0.0032/0.0032, C 0.0031/**0.0028**). It opens again on the UTC day boundary, unaided |
 | "the world is unmanipulable" | a block producer can nudge the target block hash; VRF remains the upgrade, unimplemented |
 | "any LLM verified anything" | none is in the decision path |
 | "the frontend shows the world" | does not exist yet; `show-world.mjs` is a terminal view reading the same contract |

@@ -92,6 +92,16 @@ at *resolve* time. A crash between the two transactions left a commit on chain w
 was nowhere, locking that agent permanently. The runner now logs the secret at commit time and
 replays any pending commitment at the start of each turn.
 
+**A consequence of two-step actions that the first days made expensive.** `dailyCap` and
+`perActionCap` are evaluated inside `spend()`, which runs at **resolve** — after the commitment
+already exists. So an agent whose day's budget is spent still commits, and then cannot resolve
+until the UTC day rolls: the commitment dangles, `CommitAlreadyOpen` blocks everything else, and
+the agent is frozen not by a bug but by two correct rules meeting. `abandon()` is the contract's
+escape; the policy now also reads `spentToday` against `daily` before committing, so the agent
+abstains up front with the numbers in the reason. That is a *prediction* from chain state, not a
+permission — the contract still decides, and an agent that lied about its arithmetic still gets
+rejected at `resolve`.
+
 ## Region dynamics
 
 Six regions, each with `owner`, `strength` (0–40), and a `pool`. The rules are small on purpose:

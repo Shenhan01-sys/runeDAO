@@ -96,6 +96,14 @@ Scripts that **move money** (all need `--broadcast`): `Deploy.s.sol` (first brin
   `abandon()` it becomes permanent denial of service on the agent's own account.
 - **Log secrets when they become binding, not when they are used.** The crash window between
   commit and resolve is exactly where an agent becomes unrecoverable.
+- **A monitoring metric must be able to see the failure it is named after.** `show-world` printed
+  "0 terkunci" while one agent had failed 9 ticks running, because the counter watched the `stuck`
+  event, which only fires when a secret is missing. `stuckReport()` now measures consecutive
+  non-productive ticks and prints them as `A:3x B:3x C:9x`. The first version of a watchdog that
+  cannot see the incident is worse than none, because it manufactures confidence.
+- **An escape hatch added to a contract is not a fix until the client uses it.** `abandon()` shipped
+  in the world rewrite; the runner never called it, so a stuck agent retried an impossible
+  `resolve()` every 6 minutes for ~50 minutes (two agents at once).
 - **A balance read is a timestamp, not a fact.** `Fund.s.sol` was nearly left unrun because a
   number measured at 03:11 UTC ("0.000757 BNB, we need a faucet") was still being quoted at
   03:44 — by which time the same wallet held 0.020506 BNB (confirmed identically on

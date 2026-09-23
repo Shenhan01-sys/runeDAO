@@ -14,6 +14,7 @@ import {
   KIND_RAID,
   loadEnv,
   makeClient,
+  stuckReport,
 } from "./rune-agent.mjs";
 
 const E = loadEnv();
@@ -102,11 +103,20 @@ try {
   const lines = readFileSync(actionsFile, "utf8").trim().split(/\r?\n/).filter(Boolean);
   const recs = lines.map((l) => JSON.parse(l));
   const done = recs.filter((r) => r.event === "resolve").length;
-  const stuck = recs.filter((r) => r.event === "stuck").length;
   const errs = recs.filter((r) => r.event === "error").length;
-  // `${resolves}` di sini dulu mencetak SELURUH isi array sebagai teks (satu barisan JSON
-  // panjang ke terminal) karena lupa `.length` — dan itu juga menaruh semua secret di layar.
-  console.log(`\n=== riwayat lokal: ${lines.length} catatan | ${done} aksi tuntas | ${errs} error | ${stuck} terkunci ===`);
+  const abandoned = recs.filter((r) => r.event === "abandon").length;
+  // `${resolves}` di sini dulu mencetak SELURUH isi array sebagai teks karena lupa `.length`
+  // (dan menaruh semua secret di layar). Yang lebih serius: metrik "terkunci" dihitung dari
+  // event `stuck` saja, sehingga laporan "0 terkunci" keluar justru saat seorang agen gagal
+  // sembilan tick berturut-turut. Sekarang yang ditanya adalah rentetan kegagalan.
+  const streaks = stuckReport()
+    .filter((s) => s.worst >= 3)
+    .map((s) => `${s.tag}:${s.worst}x`)
+    .join(" ");
+  console.log(
+    `\n=== riwayat lokal: ${lines.length} catatan | ${done} aksi tuntas | ${errs} error | ${abandoned} abandon ===`
+  );
+  if (streaks) console.log(`  !! rentetan kegagalan >=3 tanpa aksi sukses: ${streaks}`);
   const outcomes = recs.filter((r) => r.event === "resolve").map((r) => r.outcome);
   if (outcomes.length) {
     const won = outcomes.filter((o) => o.success).length;

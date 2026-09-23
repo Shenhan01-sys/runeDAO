@@ -46,6 +46,9 @@ const HISTORY_FILE = join(HERE, "history", "actions.jsonl");
 
 export const FACTION_TAGS = ["A", "B", "C"];
 const BLOCKS_AHEAD = 6;
+// `blockhash()` hanya membaca 256 blok ke belakang; sisakan margin supaya keputusan
+// "sudah tidak bisa dibuka" diambil sebelum benar-benar mentok.
+const BLOCKHASH_READ_WINDOW = 250;
 const TICK_SECONDS = Number(process.env.TICK_SECONDS ?? 420);
 const GAS_PER_ACTION = 740000n;
 // Ambang "cukup lemah untuk dipertahankan". 10 dipilih dari data: wilayah yang jatuh di
@@ -70,6 +73,7 @@ export const ABI = parseAbi([
   "function getCommit(address) view returns ((bytes32, bytes32, uint32, uint96, bytes32, uint64, bool))",
   "function commit(bytes32,uint96,bytes32,uint32,bytes32)",
   "function resolve(bytes32)",
+  "function abandon()",
   "function isOperable(address) view returns (bool)",
   "function hasCapability(address,bytes32) view returns (bool)",
   "function getAgent(address) view returns ((address, uint96, string, uint24, uint32, uint32, bool, bool, bool))",
@@ -113,6 +117,18 @@ export function decide({ agent, factionId, regions, faction, caps, gas, capRAID,
   }
   if (Number(faction.balance) === 0) {
     return { action: "ABSTAIN", reason: "kas faksi kosong" };
+  }
+  // Plafon HARIAN ditegakkan di `resolve()`, yaitu SETELAH commitment ada (temuan 23 Sep:
+  // dua agen terkunci berjam-jam karena commit yang tak akan pernah bisa diselesaikan, dan
+  // salah satunya mati tepat di gerbang ini). Maka headroom harian harus dihitung di sini —
+  // bukan supaya kontraknya percaya, tapi supaya agen tidak membuang commitment yang sudah
+  // pasti ditolak. `spentToday` dan `daily` dibaca dari chain, jadi ini prediksi, bukan izin.
+  const dailyBudget = Number(caps.daily);
+  if (dailyBudget > 0 && Number(faction.spentToday) + Number(caps.raidCost) > dailyBudget) {
+    return {
+      action: "ABSTAIN",
+      reason: `plafon harian hampir habis: sudah ${faction.spentToday} dari ${dailyBudget} (aksi termurah ${caps.raidCost})`,
+    };
   }
 
   const canRaid = capRAID && Number(faction.balance) >= Number(caps.raidCost) && Number(caps.perAction) >= Number(caps.raidCost);
@@ -399,6 +415,26 @@ async function explainRevert(client, WORLD, txHash) {
 
 // ------------------------------------------------------------------ transaksi
 
+/// Hitung kegagalan per-agent dari riwayat, supaya "terkunci" tidak lagi diukur dari satu
+/// event yang hanya muncul saat secret hilang — metrik lama melaporkan "0 terkunci" justru
+/// ketika seorang agen gagal sembilan tick berturut-turut.
+export function stuckReport() {
+  const recs = readLog();
+  const byTag = new Map();
+  for (const r of recs) {
+    if (!["error", "resolve", "abandon", "stuck"].includes(r.event)) continue;
+    const cur = byTag.get(r.tag) ?? { streak: 0, worst: 0 };
+    if (r.event === "resolve" || r.event === "abandon") {
+      cur.streak = 0;
+    } else {
+      cur.streak += 1;
+      cur.worst = Math.max(cur.worst, cur.streak);
+    }
+    byTag.set(r.tag, cur);
+  }
+  return [...byTag.entries()].map(([tag, v]) => ({ tag, ...v }));
+}
+
 function parseAction(receipt, WORLD) {
   for (const l of receipt.logs) {
     if (String(l.address).toLowerCase() !== String(WORLD).toLowerCase()) continue;
@@ -441,13 +477,31 @@ async function resolveCommit({ client, wallet, WORLD, tag, secret, commitHash, t
 
 /** Membuka commit yang tertinggal. Jalur pemulihan, bukan jalur normal. */
 async function recoverPending({ client, wallet, WORLD, tag, view }) {
+  const head = await freshHead(client);
   const secret = secretForCommit(view.pending.hash);
+
+  // Jendela reveal lewat -> blockhash(targetBlock) tidak bisa dibaca lagi, jadi resolve
+  // MEMANG tidak akan pernah berhasil. Versi pertama file ini tetap memanggil resolve di
+  // keadaan itu dan kegagalan yang sama berulang setiap tick (terukur: agen C gagal 9x
+  // berturut sejak 04:02 UTC) — kontrak sudah punya jalan keluar, runner-nya yang tidak
+  // pernah memakai. abandon() membayarnya sebagai kegagalan reputasi dan agen lanjut hidup.
+  if (head > view.pending.targetBlock + BLOCKHASH_READ_WINDOW) {
+    console.log(
+      `  [${tag}] commit ${short(view.pending.hash)} sudah di luar jendela reveal (blok ${head} > ${view.pending.targetBlock} + ${BLOCKHASH_READ_WINDOW}) -> abandon(), dibayar sebagai kegagalan`
+    );
+    const tx = await wallet.writeContract({ address: WORLD, abi: ABI, functionName: "abandon" });
+    const rc = await client.waitForTransactionReceipt({ hash: tx });
+    if (rc.status !== "success") throw new Error(`abandon ${short(tx)} reverted`);
+    log({ t: Date.now(), tag, event: "abandon", tx, commitHash: view.pending.hash, targetBlock: view.pending.targetBlock });
+    return { abandoned: true, region: view.pending.regionId };
+  }
+
   if (!secret) {
-    console.log(`  [${tag}] commit menggantung TANPA secret lokal (${short(view.pending.hash)}) — agen terkunci, perlu tangan manusia`);
+    console.log(`  [${tag}] commit menggantung TANPA secret lokal (${short(view.pending.hash)}) — terkunci, perlu tangan manusia`);
     log({ t: Date.now(), tag, event: "stuck", commitHash: view.pending.hash, targetBlock: view.pending.targetBlock });
     return null;
   }
-  console.log(`  [${tag}] memulihkan commit menggantung (target blok ${view.pending.targetBlock})`);
+  console.log(`  [${tag}] memulihkan commit menggantung (target blok ${view.pending.targetBlock}, blok kini ${head})`);
   return resolveCommit({
     client,
     wallet,
