@@ -1,0 +1,23 @@
+{
+  "name": "runedao-bnb",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RuneDAO di BNB Chain: agen otonom dengan kas yang dibatasi kontrak. Bukan port dari versi 0G - lihat README bagian Provenance.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "readback": "forge script script/Readback.s.sol --rpc-url https://bsc-testnet.publicnode.com",
+    "agent": "node agent/rune-agent.mjs",
+    "agent:once": "node agent/rune-agent.mjs --once",
+    "world": "node agent/show-world.mjs"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.1.0",
+    "viem": "^2.56.5"
+  }
+}

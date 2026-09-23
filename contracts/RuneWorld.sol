@@ -110,6 +110,7 @@ contract RuneWorld is Ownable {
     );
     event LootPaid(uint96 indexed regionId, uint96 indexed toFaction, address indexed agent, uint96 amount);
     event PolicySet(uint24 reputationGain, uint24 reputationLoss, uint32 regionCooldown);
+    event CommitAbandoned(address indexed agent, uint96 indexed regionId, bytes32 indexed kind, uint32 targetBlock, uint24 reputationLost);
 
     error NotOperable();
     error CapabilityMissing();
@@ -128,6 +129,8 @@ contract RuneWorld is Ownable {
     error UnknownKind();
     error NotRegionOwner();
     error ZeroAddress();
+    error RevealWindowOpen();
+    error NoPendingAbandon();
 
     constructor(address registry_, address treasury_) Ownable(msg.sender) {
         if (registry_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
@@ -290,6 +293,34 @@ contract RuneWorld is Ownable {
             return true;
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ jalan keluar
+
+    /// @notice Membuang commit yang tidak jadi dibuka, SETELAH jendela reveal lewat.
+    ///
+    /// Kenapa ini harus ada: commit-reveal tanpa jalan keluar berarti satu proses agen yang
+    /// mati di antara dua transaksi mengunci agen itu selamanya — `commit()` berikutnya akan
+    /// selalu `CommitAlreadyOpen`. Itu bukan ketatnya aturan, itu denial-layanan oleh kecelakaan.
+    ///
+    /// Kenapa berbayar: kalau membuang commit itu gratis, agen bisa menggulung dadu, melihat
+    /// hasilnya, lalu membuangnya saat jelek dan mencoba lagi. Jadi abandonment SELALU
+    /// dihitung sebagai kegagalan reputasi, lewat jalur yang sama dengan raid gagal — dan
+    /// karena plafon belanja mengikuti reputasi, agen yang sering kabur membatasi dirinya
+    /// sendiri. Terornya tetap mungkin; harganya yang dibuat nyata.
+    ///
+    /// Jendela reveal = `targetBlock + 256`: sesudah itu `blockhash(targetBlock)` tidak bisa
+    /// dibaca lagi dan resolve memang tidak akan pernah bisa berhasil.
+    function abandon() external {
+        Commit memory c = _commits[msg.sender];
+        if (!c.exists) revert NoCommit();
+        if (block.number <= uint256(c.targetBlock) + BLOCKHASH_WINDOW) revert RevealWindowOpen();
+
+        delete _commits[msg.sender];
+
+        uint24 lost = reputationLoss;
+        REGISTRY.recordOutcome(msg.sender, lost, false);
+        emit CommitAbandoned(msg.sender, c.regionId, c.kind, c.targetBlock, lost);
     }
 
     // ------------------------------------------------------------------ kebijakan

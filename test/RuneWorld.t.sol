@@ -429,4 +429,92 @@ contract RuneWorldTest is Test {
         Act memory a = _act(agentA, REGION, ENTRENCH, bytes32("kokoh"));
         assertTrue(a.strength >= before_, "mengukuhkan tidak boleh menurunkan kekuatan");
     }
+    // ---------------------------------------------------------------- abandon
+
+    /// Jalan keluar dari commit yang tidak jadi dibuka. Tanpa ini, satu proses agen yang mati
+    /// di antara dua transaksi mengunci agen itu selamanya (CommitAlreadyOpen terus-menerus).
+    function test_abandonRejectsWhileRevealWindowStillOpen() public {
+        bytes32 secret = bytes32("belum dibuka");
+        uint32 target = _openCommitOnly(agentA, REGION, RAID, secret);
+
+        // Baru beberapa blok lewat: masih sah untuk resolve, jadi belum boleh dibuang.
+        vm.roll(block.number + 4);
+        vm.prank(agentA);
+        vm.expectRevert(RuneWorld.RevealWindowOpen.selector);
+        world.abandon();
+    }
+
+    function test_abandonRejectsWithoutCommit() public {
+        vm.prank(agentA);
+        vm.expectRevert(RuneWorld.NoCommit.selector);
+        world.abandon();
+    }
+
+    /// Agen yang kabur dari aksinya membayar dengan reputasi — dan karena plafon belanja
+    /// mengikuti reputasi, harga itu nyata, bukan seremonial.
+    function test_abandonCostsReputationAndFreesTheAgent() public {
+        uint24 repBefore = registry.getAgent(agentA).reputation;
+        (uint96 capBefore,) = treasury.effectiveCaps(agentA);
+
+        bytes32 secret = bytes32("dibuang");
+        uint32 target = _openCommitOnly(agentA, REGION, RAID, secret);
+
+        // Lewati jendela reveal: blockhash(target) tidak bisa dibaca lagi, resolve mustahil.
+        vm.roll(uint64(target) + 257);
+
+        vm.prank(agentA);
+        world.abandon();
+
+        RuneRegistry.Agent memory a = registry.getAgent(agentA);
+        assertEq(uint256(a.reputation), uint256(repBefore) - uint256(world.reputationLoss()));
+        assertEq(a.failures, 1, "kabur dihitung sebagai kegagalan");
+        assertEq(a.actions, 1, "aksi tercatat meski tidak diselesaikan");
+        assertTrue(!world.getCommit(agentA).exists, "commit harus hilang");
+
+        (uint96 capAfter,) = treasury.effectiveCaps(agentA);
+        assertTrue(capAfter <= capBefore, "kabur tidak boleh memperbesar plafon");
+
+        // Setelah dibuang, agen boleh berkomitmen lagi.
+        _openCommitOnly(agentA, OTHER_REGION, RAID, bytes32("lagi"));
+    }
+
+    /// Uang tidak boleh berpindah saat agen kabur: biaya aksi dibayar di resolve, jadi
+    /// abandonment tidak menyentuh kas — dan pool wilayah tidak bertambah.
+    function test_abandonMovesNoMoney() public {
+        RuneTreasury.Faction memory before_ = treasury.getFaction(FACTION_A);
+        bytes32 secret = bytes32("uang tidak gerak");
+        uint32 target = _openCommitOnly(agentA, REGION, RAID, secret);
+        vm.roll(uint64(target) + 257);
+
+        vm.prank(agentA);
+        world.abandon();
+
+        RuneTreasury.Faction memory after_ = treasury.getFaction(FACTION_A);
+        assertEq(uint256(after_.balance), uint256(before_.balance), "abandon tidak boleh menarik kas");
+        assertEq(after_.spends, before_.spends);
+        assertEq(uint256(world.getRegion(REGION).pool), uint256(before_.spends) * 0, "pool tetap nol");
+    }
+
+    /// Commit yang dibuang tidak bisa dibuka lagi setelahnya.
+    function test_resolveAfterAbandonReverts() public {
+        bytes32 secret = bytes32("sudah dibuang");
+        uint32 target = _openCommitOnly(agentA, REGION, RAID, secret);
+        vm.roll(uint64(target) + 257);
+
+        vm.startPrank(agentA);
+        world.abandon();
+        vm.expectRevert(RuneWorld.NoCommit.selector);
+        world.resolve(secret);
+        vm.stopPrank();
+    }
+
+    /// @dev Hanya berkomitmen (tidak resolve); mengembalikan targetBlock yang dipakai.
+    function _openCommitOnly(address agent_, uint96 regionId, bytes32 kind, bytes32 secret) internal returns (uint32) {
+        vm.warp(block.timestamp + world.regionCooldown() + 1);
+        uint32 target = uint32(block.number + AHEAD);
+        bytes32 hash = keccak256(abi.encodePacked(secret, target, agent_, world.nonceOf(agent_) + 1));
+        vm.prank(agent_);
+        world.commit(hash, regionId, kind, target, TRANSCRIPT);
+        return target;
+    }
 }

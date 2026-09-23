@@ -15,3 +15,7 @@ node_modules/
 
 .DS_Store
 Thumbs.db
+
+# Riwayat aksi agen: berisi secret commit dan alamat lokal. Bukti yang benar ada di
+# chain (event Action + transcriptHash), jadi file ini tidak perlu ikut repo.
+agent/history/
