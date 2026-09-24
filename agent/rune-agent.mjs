@@ -46,6 +46,8 @@ const HISTORY_FILE = join(HERE, "history", "actions.jsonl");
 
 export const FACTION_TAGS = ["A", "B", "C"];
 const BLOCKS_AHEAD = 6;
+// MAX_TARGET_HORIZON kontrak = 20; sisakan 2 supaya tidak pernah ditolak karena terlalu jauh.
+const HORIZON_MAX = 20;
 // `blockhash()` hanya membaca 256 blok ke belakang; sisakan margin supaya keputusan
 // "sudah tidak bisa dibuka" diambil sebelum benar-benar mentok.
 const BLOCKHASH_READ_WINDOW = 250;
@@ -588,10 +590,11 @@ async function runTurn({ client, rpcUrl, WORLD, REGISTRY, TREASURY, E, tag, fact
   // Retry sekali dengan target dihitung ulang: RPC publik bisa tertinggal dan kontrak menolak
   // target yang sudah lewat.
   let lastErr = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  let horizon = BLOCKS_AHEAD;
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const head = await freshHead(client);
-      const targetBlock = head + BLOCKS_AHEAD;
+      const targetBlock = head + horizon;
       const nextNonce = BigInt(view.nonce) + 1n;
       const hash = commitHashOf({ secret, targetBlock, address: view.account.address, nonce: nextNonce });
       const tr = transcriptFor({ tag, factionId, decision, view, regions, targetBlock, head });
@@ -604,8 +607,16 @@ async function runTurn({ client, rpcUrl, WORLD, REGISTRY, TREASURY, E, tag, fact
       });
       const commitReceipt = await client.waitForTransactionReceipt({ hash: commitTx });
       if (commitReceipt.status !== "success") {
-        const why = await explainRevert(client, WORLD, commitTx);
+        // Tidak perlu simulasi untuk kasus paling umum: kuitansinya sendiri sudah berisi blok
+        // pendaratan. Kalau commit mendarat DI ATAU SETELAH targetBlock, kontrak jelas melihat
+        // blockhash(targetBlock) yang belum ada (TargetBlockNotFuture) - dan itu terjadi karena
+        // head yang kita baca dari RPC publik tertinggal, bukan karena aturan lain.
+        const landedLate = BigInt(commitReceipt.blockNumber) >= BigInt(targetBlock);
+        const why = landedLate
+          ? `commit mendarat di blok ${commitReceipt.blockNumber} >= targetBlock ${targetBlock}: hash blok target belum ada saat kontrak mengevaluasi (TargetBlockNotFuture)`
+          : await explainRevert(client, WORLD, commitTx);
         const e = new Error(`commit ${short(commitTx)} reverted: ${why}`);
+        e.landedLate = landedLate;
         e.revertReason = why;
         throw e;
       }
@@ -640,8 +651,12 @@ async function runTurn({ client, rpcUrl, WORLD, REGISTRY, TREASURY, E, tag, fact
     } catch (err) {
       lastErr = err;
       const msg = String(err?.shortMessage ?? err?.message ?? err);
-      if (!msg.includes("TargetBlockNotFuture")) break; // hanya itu yang layak diulang
-      console.log(`  [${tag}] target blok terlewat, hitung ulang (percobaan ${attempt + 2})`);
+      const worthRetrying = err?.landedLate || msg.includes("TargetBlockNotFuture");
+      if (!worthRetrying) break;
+      // Retry dengan horizon lebih jauh: kalau head tertinggal 1 blok, memberi 6 blok lagi
+      // berarti memberi mereka ruang; tetap di dalam MAX_TARGET_HORIZON kontrak (20).
+      horizon = Math.min(HORIZON_MAX - 2, horizon + 6);
+      console.log(`  [${tag}] target terlewat, hitung ulang dengan horizon ${horizon} blok (percobaan ${attempt + 2})`);
       await new Promise((r) => setTimeout(r, 1500));
     }
   }
