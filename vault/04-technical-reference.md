@@ -6,8 +6,9 @@
 |---|---|
 | `RuneRegistry` | `0x56bf7e4ae3dea386c5e929be40c1bbac7013e7ae` (4,815 B code) |
 | `RuneTreasury` | `0x94a03650e578e2553a1d74e4ea24469228df2209` (5,920 B) |
-| `RuneWorld` (current) | `0xf83F618C474e1ec36a4D6E13f9B16E54D81fE600` (8,288 B) |
-| `RuneWorld` (first, superseded) | `0x5D8bdA7cB2B40834a2D0D576Ef0cD64953Be0b3A` — kept for audit; **no longer authoritative** |
+| `RuneWorld` **season 2** (current) | `0xd239713b250048763Ef9AE41A787b328F2f84104` (8,162 B) |
+| `RuneWorld` season 1 (archive, read-only) | `0xf83F618C474e1ec36a4D6E13f9B16E54D81fE600` — 63 unattended actions live here permanently; `0x5D8bdA7c…` is the world before that |
+| `RuneWorld` season 0 (archive) | `0x5D8bdA7cB2B40834a2D0D576Ef0cD64953Be0b3A` — replaced before the reputation loop ever ran |
 | Platform owner / deployer | `0xAEc63F6cEbBfacdC3516992b6ec396147c9c8361` |
 | Guardians A/B/C | `0x4e667dB4…93E3` · `0x4cc46460…2B56` · `0x6dEA871B…2442` |
 | Agents A/B/C | `0x441500a5…aF79` · `0x81Cefc48…d318` · `0x5863d8c0…82b82C` |
@@ -34,7 +35,21 @@ objection — "you could not have done this on BNB" — is false, and the accura
 primitives exist, we chose the cheaper one, and here is what it does not buy us"
 ([02](02-architecture.md)).
 
-## Working commands
+## Which functions are actually on chain
+
+`node tools/probe-surface.mjs` asks the deployed bytecode, with a fictional
+`CONTROL_DOES_NOT_EXIST` as the ruler. Measured 24 Sep on season 2:
+
+| | on chain |
+|---|---|
+| `MIN_STRENGTH`, `LOOT_SHARE_PERCENT`, `abandon` | **yes** |
+| `withdraw` on the treasury | **no** — the treasury was deliberately reused (see below) |
+
+The treasury was *not* redeployed on purpose: it holds 0.0055 BNB of faction cash that would
+otherwise be stranded, and reusing it also keeps every faction's guardian/allowlist/policy as
+the guardians themselves set them. The price of that choice is that the exit door still exists
+only in source and tests. Stating that is the point of this file.
+
 
 ```bash
 npm install                      # @openzeppelin/contracts 5.1.0 + viem 2.56.5, this repo's own

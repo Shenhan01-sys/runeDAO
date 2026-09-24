@@ -73,9 +73,15 @@ if (!withCreate.length) {
   process.exit(1);
 }
 const first = withCreate[0];
-//_world_ = CREATE terakhir di seluruh riwayat. Bukan "file terakhir": script seperti
-// Seed.s.sol dan Fund.s.sol adalah run terbaru tapi nol CREATE, dan mengambil [-1] dari
-// array kosong memberi undefined yang lalu berangkat sebagai parameter RPC null (terukur).
+// registry & treasury diambil dari run yang sama dan HARUS memuat >=3 CREATE (bring-up penuh);
+// world diambil dari CREATE terakhir secara keseluruhan. Aturan ini perlu karena run dunia-baru
+// hanya punya SATU CREATE: kalau treasury ikut diambil dari run itu, treasury lama (yang masih
+// memegang kas faksi) tertimpa alamat world.
+const full = withCreate.find((f) => f.creates.length >= 3);
+if (!full) {
+  console.error("tidak ada run yang memuat 3 CREATE - jalankan script/Deploy.s.sol dulu");
+  process.exit(1);
+}
 const last = withCreate[withCreate.length - 1];
 
 if (first.creates.length < 3) {

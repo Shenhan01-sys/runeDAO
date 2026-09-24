@@ -40,9 +40,11 @@ exist to bound an agent's waste, not to slow an owner's exit. Six tests cover it
 re-entrant guardian that tries to withdraw again from inside its own `receive()`: the balance is
 already reduced before ETH moves, so the second attempt sees an empty book and fails.
 
-**Deployment status, stated plainly:** the contracts live on chain **without** this function. Until
-a redeploy, the exit door exists in the source and in tests only. Claiming the closed loop on chain
-before that redeploy would be exactly the kind of sentence this file exists to prevent.
+**Deployment status, stated plainly:** season 2 (`0xd239713b…`) carries the strength floor and the
+60/40 loot split — verified by `probe-surface`, not assumed. It does **not** carry `withdraw`: the
+treasury was deliberately reused to keep 0.0055 BNB of faction cash and the guardians' own policies
+alive. So the loop still has one open end on chain, and that sentence belongs in the submission
+text, not in a footnote.
 
 ## Emergent behaviour we measured and did not tune away
 
@@ -90,6 +92,7 @@ happened and are in the file.
 | "address resolves on `testnet.bscscan.com`" | unconfirmed for these contracts (that check needs a browser; the explorer returns 403 to our tooling). **Hard submission requirement** — confirm before submitting |
 | ~~"reputation visibly tightens an agent's budget"~~ | **now proven live** (see Proven, tier 2 → 0.0007 vs tier 6 → 0.0008). Kept here as history: it was false when written, and the reason it was false is that `MAX_TIER_BONUS = 3` makes every tier ≥ 3 identical, so only dropping *below* 300 reputation changes anything |
 | "a faction can be throttled into stillness" | true and correct behaviour: after `Fund.s.sol`, all three agents hit the **daily** ceiling and abstained with explicit reasons (A 0.0031/0.0032, B 0.0032/0.0032, C 0.0031/**0.0028**). It opens again on the UTC day boundary, unaided |
+| ~~"fresh regions are worth attacking"~~ | **now true by rule, not by client subsidy**: season 2 seeds each region with a 0.0004 BNB bounty, and the three agents immediately rated a neutral region at `EV +150000000000000 wei` and captured two of them within the first three actions |
 | "the world is unmanipulable" | a block producer can nudge the target block hash; VRF remains the upgrade, unimplemented |
 | "any LLM verified anything" | none is in the decision path |
 | "the frontend shows the world" | does not exist yet; `show-world.mjs` is a terminal view reading the same contract |

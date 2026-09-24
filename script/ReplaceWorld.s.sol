@@ -19,6 +19,10 @@ import {RuneWorld} from "../contracts/RuneWorld.sol";
 ///
 ///   forge script script/ReplaceWorld.s.sol --rpc-url ... --broadcast
 contract ReplaceWorld is Script {
+    string[6] internal REGIONS = ["Vhal'Mor", "Abu Kelabu", "Rawa Gema", "Pintu Garam", "Tulang Raja", "Simpul Asing"];
+    /// @notice Hadiah awal tiap wilayah. Tanpa ini wilayah baru berhadiah 0 dan EV
+    ///     menyerang selalu negatif, jadi dunia lahir beku - yang terukur terjadi musim lalu.
+    uint256 internal constant BASE_BOUNTY = 0.0004 ether;
     function run() external {
         RuneRegistry registry = RuneRegistry(payable(vm.envAddress("REGISTRY_ADDRESS")));
         RuneTreasury treasury = RuneTreasury(vm.envAddress("TREASURY_ADDRESS"));
@@ -31,6 +35,9 @@ contract ReplaceWorld is Script {
         vm.startBroadcast(key);
         RuneWorld world = new RuneWorld(address(registry), address(treasury));
         registry.setWorld(address(world));
+        for (uint96 i = 0; i < 6; i++) {
+            world.seedRegion{value: BASE_BOUNTY}(i, REGIONS[i], 20, uint96(BASE_BOUNTY));
+        }
         vm.stopBroadcast();
 
         // Setiap guardian harus mengizinkan dunia baru sebagai penerima dana; tanpa ini
@@ -45,6 +52,7 @@ contract ReplaceWorld is Script {
 
         console.log("world baru");
         console.logAddress(address(world));
+        console.log("saldo deployer sisa (wei)", payable(vm.addr(key)).balance);
         console.log("registry menunjuk world baru:", registry.world() == address(world));
     }
 }
