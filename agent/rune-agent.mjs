@@ -65,6 +65,11 @@ const bytes = (s) => new Uint8Array(Buffer.from(s, "utf8"));
 export const KIND_RAID = keccak256(bytes("RAID"));
 export const KIND_ENTRENCH = keccak256(bytes("ENTRENCH"));
 
+// Selector dihitung dari signature-nya, bukan disalin sebagai jimat: kalau kontrak
+// berubah, yang ini ikut berubah. Dicocokkan terhadap nilai yang benar-benar muncul di
+// log loop 24 Sep (0x5f3f7b34) sebagai uji.
+export const TARGET_NOT_FUTURE_SELECTOR = keccak256(bytes("TargetBlockNotFuture()")).slice(0, 10);
+
 /// ABI dibaca dari kontrak yang SUDAH dideploy. Kalau tanda tangannya tidak cocok dengan
 /// chain, viem gagal keras — bukan salah kirim data diam-diam.
 export const ABI = parseAbi([
@@ -85,6 +90,21 @@ export const ABI = parseAbi([
   "function tierOf(address) view returns (uint256)",
   "function getFaction(uint96) view returns ((address, uint96, uint96, uint96, uint32, uint64, uint96, uint64, uint96, uint32, bool, bool))",
   "function effectiveCaps(address) view returns (uint96, uint96)",
+  "error NotOperable()",
+  "error CapabilityMissing()",
+  "error RegionUnknown()",
+  "error RegionCooldownActive()",
+  "error CommitAlreadyOpen()",
+  "error EmptyTranscript()",
+  "error TargetBlockNotFuture()",
+  "error TargetBlockTooFar()",
+  "error RevealWindowOpen()",
+  "error NoCommit()",
+  "error OnlyWorld()",
+  "error AbovePerActionCap()",
+  "error AboveDailyCap()",
+  "error NotEnoughFunds()",
+  "error GuardianMismatch()",
   "event Action(bytes32 indexed actionId, address indexed agent, uint96 indexed regionId, bytes32 kind, uint8 roll, uint8 threshold, bool success, uint96 cost, uint32 strength, uint96 owner, bytes32 transcriptHash)",
 ]);
 
@@ -697,7 +717,11 @@ async function runTurn({ client, rpcUrl, WORLD, REGISTRY, TREASURY, E, tag, fact
     } catch (err) {
       lastErr = err;
       const msg = String(err?.shortMessage ?? err?.message ?? err);
-      const worthRetrying = err?.landedLate || msg.includes("TargetBlockNotFuture");
+      // Dua bentuk kegagalan yang sama: viem memberi NAMA error kalau ABI-nya tahu, dan hanya
+      // SELECTOR kalau tidak. Versi pertama hanya cocok dengan yang pertama, jadi separuh
+      // kasus tetap membuang aksinya (terlihat di log loop: `reverted with the following
+      // signature: 0x5f3f7b34` tanpa retry). Selector itu TargetBlockNotFuture.
+      const worthRetrying = err?.landedLate || msg.includes("TargetBlockNotFuture") || msg.includes(TARGET_NOT_FUTURE_SELECTOR);
       if (!worthRetrying) break;
       // Retry dengan horizon lebih jauh: kalau head tertinggal 1 blok, memberi 6 blok lagi
       // berarti memberi mereka ruang; tetap di dalam MAX_TARGET_HORIZON kontrak (20).
