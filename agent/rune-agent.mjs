@@ -264,6 +264,14 @@ async function readAgentView(client, E, WORLD, REGISTRY, TREASURY, tag, factionI
 
   const faction = await client.readContract({ address: TREASURY, abi: ABI, functionName: "getFaction", args: [factionId] });
 
+  // `spentToday` TIDAK bermakna tanpa `dayIndex`. Kontrak memperlakukannya sebagai "berlaku
+  // hanya jika dayIndex == hari UTC sekarang"; membaca kolomnya telanjang membuat belanja
+  // kemarin dihitung sebagai budget hari ini, dan agen berhenti selamanya - dengan log yang
+  // terlihat persis seperti plafon sedang bekerja. Terjadi 24 Sep dan tidak tertangkap satu
+  // pun dari 89 tes, karena setiap tes hidup di dalam satu hari yang sama.
+  const utcDay = BigInt(Math.floor(Date.now() / 1000 / 86400));
+  const spentToday = BigInt(faction[5]) === utcDay ? faction[6] : 0n;
+
   return {
     tag,
     account,
@@ -271,7 +279,7 @@ async function readAgentView(client, E, WORLD, REGISTRY, TREASURY, tag, factionI
     capRAID,
     capENTRENCH,
     agent: { operable, reputation: a[3], actions: a[4], failures: a[5] },
-    faction: { balance: faction[1], spentToday: faction[6], spends: faction[9] },
+    faction: { balance: faction[1], spentToday, spends: faction[9] },
     caps: { perAction: capPair[0], daily: capPair[1], raidCost, entrenchCost },
     tier,
     nonce,
