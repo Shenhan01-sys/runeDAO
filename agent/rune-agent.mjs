@@ -159,31 +159,61 @@ export function decide({ agent, factionId, regions, faction, caps, gas, capRAID,
   }
 
   if (canRaid && targets.length) {
-    const scored = targets
-      .map((r) => ({
-        r,
-        // Hadiah per unit risiko. Ambang di atas 11 dihukum 4 poin per tingkat: angkanya
-        // tertulis dan ikut masuk transcript, jadi keputusan bisa direplikasi orang lain.
-        score: Number(r.pool) / Number(caps.raidCost) - (Number(r.threshold) - 11) * 4,
-      }))
-      .filter((x) => Number(x.r.threshold) <= 15)
-      .sort((a, b) => b.score - a.score);
+    // Expected value sungguhan, bukan skor rekaan. Ganti ini dipaksa oleh data: 6 serangan
+    // dengan "skor" negatif semuanya dari agen C, dan 3 di antaranya sebenarnya +EV sementara
+    // 3 benar-benar -EV - artinya heuristik lama salah tanda di separuh kasus (terukur 24 Sep;
+    // dua kerugian nyata: roll 1 dan roll 5 melawan ambang 12).
+    //   P(menang) = (21 - threshold) / 20   ← d20, hit sukses adalah roll >= threshold
+    //   EV        = P * pool - biaya
+    // Reputasi TIDAK ikut dihitung: plafon yang membesar karena menang bukan uang, dan
+    // memasukkannya ke EV berarti menukar satuan.
+    const valued = targets
+      .map((r) => ({ r, ev: raidEV(r, caps), p: winProb(r) }))
+      .filter((x) => x.ev > 0n)
+      .sort((a, b) => (a.ev < b.ev ? 1 : a.ev > b.ev ? -1 : 0));
 
-    if (scored.length) {
-      const r = scored[0].r;
+    if (valued.length) {
+      const { r, ev, p } = valued[0];
       return {
         action: "RAID",
         regionId: r.id,
         cost: caps.raidCost,
-        reason: `pool ${r.pool}, ambang ${r.threshold}, kekuatan ${r.strength} — skor ${scored[0].score.toFixed(2)}`,
+        reason: `P(menang)=${p.toFixed(2)}, hadiah ${r.pool} vs biaya ${caps.raidCost} -> EV +${ev} wei`,
+      };
+    }
+
+    // Tidak ada yang layak diserang: sebutkan yang paling tidak buruk supaya alasan penolakannya
+    // bisa diperiksa orang, bukan cuma dipercaya.
+    const best = targets
+      .map((r) => ({ r, ev: raidEV(r, caps) }))
+      .sort((a, b) => (a.ev < b.ev ? 1 : -1))
+      .slice(0, 1);
+    if (best.length) {
+      return {
+        action: "ABSTAIN",
+        reason: `tidak ada target +EV: terbaik ${best[0].r.name} EV ${best[0].ev} wei (ambang ${best[0].r.threshold}, hadiah ${best[0].r.pool})`,
       };
     }
   }
 
   return {
     action: "ABSTAIN",
-    reason: canRaid ? "tidak ada target dengan ambang <= 15" : "raid tidak lolos kas/plafon/kapabilitas",
+    reason: canRaid ? "tidak ada target yang bisa diserang" : "raid tidak lolos kas/plafon/kapabilitas",
   };
+}
+
+/** P(menang) untuk d20 dengan ambang `threshold`: jumlah sisi yang lolos = 21 - t, dari 20. */
+export function winProb(region) {
+  const t = Number(region.threshold);
+  if (t <= 1) return 1;
+  if (t > 20) return 0;
+  return (21 - t) / 20;
+}
+
+/// EV sebuah raid, dalam wei: P(menang) x hadiah wilayah dikurangi biaya aksi.
+/// Kontrak menjaga `threshold` di 4..19, jadi P selalu di antara 0,10 dan 0,85.
+export function raidEV(region, caps) {
+  return BigInt(Math.round(winProb(region) * Number(region.pool))) - BigInt(caps.raidCost);
 }
 
 /**

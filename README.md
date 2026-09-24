@@ -124,6 +124,7 @@ reputation — `recordOutcome` accepts exactly one caller, the game.
 npm install                 # @openzeppelin/contracts 5.1.0 + viem 2.56.5, this repo's own
 forge build                 # compiles; see the lint note below
 forge test                  # 89 passed, 0 failed (26 registry · 33 treasury · 30 world)
+npm run test:policy         # 9 passed — the decision function is not covered by the Solidity tests
 
 node tools/make-env.mjs     # fresh burner testnet keys (never prints a value)
 node tools/record-addresses.mjs   # writes deployed addresses, verified against the chain
@@ -136,6 +137,13 @@ npm run agent               # keep the world moving (TICK_SECONDS, default 420)
 npm run health              # is it actually still working? exit 1 if the loop died or went silent
 npm run lint:docs           # fences, dead links, stale numbers, banned claims
 ```
+
+`npm run test:policy` exists because the Solidity suite can prove the contract enforces its
+rules and still say nothing about whether the thing reading those rules is sensible. Two real
+bugs lived in that gap: ENTRENCH was never reachable for the first 20 actions, and the agent
+attacked targets whose expected value was negative because the number I called a "score" was
+not an expected value. Both suites are mutation-checked: break `raidEV` on purpose and the
+policy tests fail — a test that passes on broken code is the thing we are trying to remove.
 
 `npm run health` exists because the loop stopped three times in two days and **nothing reported
 it**: a dead process leaves the repo green and the tests passing while the one thing we cannot buy

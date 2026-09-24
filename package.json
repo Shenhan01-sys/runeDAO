@@ -17,7 +17,8 @@
     "world": "node agent/show-world.mjs",
     "page": "node tools/build-page.mjs",
     "health": "node tools/agent-health.mjs",
-    "lint:docs": "node tools/check-docs.mjs"
+    "lint:docs": "node tools/check-docs.mjs",
+    "test:policy": "node tools/test-policy.mjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
