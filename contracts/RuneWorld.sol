@@ -49,6 +49,17 @@ contract RuneWorld is Ownable {
     /// @notice Kekuatan wilayah dijaga di 0..MAX_STRENGTH supaya ambang raid tidak pernah
     ///         jadi mustahil atau jadi formalitas.
     uint32 public constant MAX_STRENGTH = 40;
+    /// @notice Lantai kekuatan. Didapat dari data, bukan dari kepala: tanpa lantai, aturan
+    ///         "menang = kekuatan -6" membuat wilayah yang sering diperebutkan meluncur ke
+    ///         ambang 4 dan jadi pinata — terukur: Vhal'Mor 20 -> 0, dan 35 dari 38 raid kita
+    ///         menyasar wilayah BERHADIAH NOL justru karena skor lama menghargai kemudahan,
+    ///         bukan nilai. Dengan lantai, harga menahan wilayah tidak runtuh tanpa batas.
+    uint32 public constant MIN_STRENGTH = 10;
+    /// @notice Persentase hadiah yang diambil pemenang. Sisanya TINGGAL di wilayah sebagai
+    ///         hadiah permanen: kalau pemenang mengambil 100%, satu penaklukan membuat wilayah
+    ///         itu selamanya tidak layak diserang (EV = P*0 - biaya < 0) dan dunia membeku —
+    ///         persis yang terjadi pada 24 Sep setelah kebijakan diperbaiki.
+    uint256 public constant LOOT_SHARE_PERCENT = 60;
     /// @notice Jarak maksimum `targetBlock` dari blok sekarang.
     uint32 public constant MAX_TARGET_HORIZON = 20;
     /// @notice `blockhash()` hanya membaca 256 blok ke belakang.
@@ -256,15 +267,22 @@ contract RuneWorld is Ownable {
 
         if (success) {
             raidsWon += 1;
-            uint96 loot = r.pool;
+            // Pemenang mengambil LOOT_SHARE_PERCENT; sisanya TETAP jadi hadiah wilayah.
+            // Menguras 100% membuat wilayah hasil taklukan bernilai hadiah nol, sehingga
+            // serangan berikutnya selalu -EV dan dunia diam — itu bukan teori, itu yang
+            // terukur terjadi pada 24 Sep setelah kebijakan kami perbaiki.
+            uint96 loot = uint96((uint256(r.pool) * LOOT_SHARE_PERCENT) / 100);
             if (loot > 0) {
-                r.pool = 0;
+                r.pool -= loot;
                 TREASURY.credit{value: loot}(factionId);
                 emit LootPaid(regionId, factionId, agent, loot);
             }
             r.owner = factionId;
             r.lastDefender = address(0);
-            r.strength = r.strength > 6 ? r.strength - 6 : 0;
+            // Kekuatan turun karena pergantian penguasa, tapi berhenti di lantai: tanpa batas
+            // bawah, wilayah yang sering diperebutkan meluncur ke ambang 4 dan jadi bidik
+            // gratis selamanya.
+            r.strength = r.strength > MIN_STRENGTH + 6 ? r.strength - 6 : MIN_STRENGTH;
             REGISTRY.recordOutcome(agent, reputationGain, true);
         } else {
             raidsFailed += 1;

@@ -108,7 +108,7 @@ Six regions, each with `owner`, `strength` (0–40), and a `pool`. The rules are
 
 | event | effect |
 |---|---|
-| raid **wins** | ownership flips to the attacker, `strength −6`, and the whole pool is **credited to the attacker's treasury** |
+| raid **wins** | ownership flips to the attacker, `strength −6` **down to a floor of 10**, and the attacker's treasury is credited **60% of the pool** — the other 40% stays as the region's standing bounty |
 | raid **loses** | the raid's 0.0003 BNB cost is **not burned** — it is added to that region's pool, and `strength +1` |
 | entrench | only the owner may; `strength += roll/4`, capped at 40; a small reputation gain, no punishment for a low roll |
 | raid threshold | `11 + (strength − 20)/2`, clamped 4…19 — so the strongest region is still capturable and the weakest is not free |
@@ -116,6 +116,18 @@ Six regions, each with `owner`, `strength` (0–40), and a `pool`. The rules are
 Money that leaves a treasury on a failure therefore does not disappear: it becomes the prize that
 makes the next attack rational. A judge can watch the same 0.0003 BNB move from a faction's book to
 a region's pool to another faction's book.
+
+**Two limits exist because of measured failure, not taste.**
+
+*The winner takes 60%, not everything.* With a 100% payout, the region you just captured has a
+prize of 0, so attacking it again is always −EV and the world stops moving. That is not a
+hypothetical: on 24 Sep, once the agents began computing expected value honestly, all three
+abstained simultaneously and the game froze — a stable, correct, useless equilibrium. A standing
+residual is what keeps contested ground worth contesting.
+
+*Strength has a floor (10).* Capture subtracted 6 with no bottom, so a region that changes hands
+often slides to threshold 4 (85% success) and becomes a permanent shooting gallery — measured:
+Vhal'Mor went 20 → 0. The floor caps how cheap aggression can get.
 
 ## The agent runtime
 

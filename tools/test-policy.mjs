@@ -8,7 +8,7 @@
 //
 //   node tools/test-policy.mjs        (exit 1 kalau ada yang gagal)
 
-import { decide, raidEV, winProb } from "../agent/rune-agent.mjs";
+import { HOLD_VALUE, decide, raidEV, winProb } from "../agent/rune-agent.mjs";
 
 const RAID_COST = 300000000000000n; // 0.0003 BNB, dari kontrak
 const ENTRENCH_COST = 100000000000000n;
@@ -145,9 +145,35 @@ t("agen tidak operable (suspended/delisted) -> tidak bertindak", () => {
   eq(d.action, "ABSTAIN", d.reason);
 });
 
-t("raidEV menolak saat hadiah nol, berapa pun ambangnya", () => {
-  eq(raidEV(region({ threshold: 4, pool: 0n }), caps) < 0n, true);
+t("HOLD_VALUE sendirian tidak membuat fortress layak diserang", () => {
+  // ambang 19 -> P=0,10: 0,10 x 0,0005 = 0,00005 < biaya 0,0003
   eq(raidEV(region({ threshold: 19, pool: 0n }), caps) < 0n, true);
+  eq(raidEV(region({ threshold: 16, pool: 0n }), caps) < 0n, true);
+});
+
+t("wilayah kosong tapi LEMAH layak diserang - ini yang membuat dunia hidup", () => {
+  // ambang 4 -> P=0,85: 0,85 x 0,0005 = 0,000425 > 0,0003
+  const d = decide({
+    agent: healthy,
+    factionId: 1n,
+    regions: [region({ id: 5n, threshold: 4, pool: 0n })],
+    faction,
+    caps,
+    gas,
+    capRAID: true,
+    capENTRENCH: true,
+  });
+  eq(d.action, "RAID", d.reason);
+  if (!/nilai pegang/.test(d.reason)) throw new Error(`alasan harus menyebut nilai pegang wilayah: ${d.reason}`);
+});
+
+t("kebijakan menilai tempat beruang, bukan tempat termudah", () => {
+  // Dulu skor terbalik: ambang rendah = skor tinggi, sampai 35 dari 38 raid EV-nya <= 0.
+  const fortress = { pool: 3000000000000000n, threshold: 6 };
+  const easyEmpty = { pool: 0n, threshold: 19 };
+  const a = raidEV({ ...region(fortress), ...fortress }, caps);
+  const b = raidEV({ ...region(easyEmpty), ...easyEmpty }, caps);
+  if (!(a > 0n && b < 0n)) throw new Error(`hadiah besar/ambang tinggi harus mengalahkan wilayah kosong yang mudah: ${a} vs ${b}`);
 });
 
 // laporan

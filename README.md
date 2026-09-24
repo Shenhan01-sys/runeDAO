@@ -60,6 +60,13 @@ unlimited funds either.
 Two brakes, two owners: `suspend()` belongs to the agent's guardian; `delist()` belongs to the
 venue and cannot be undone by the guardian — and neither erases what already happened on chain.
 
+**Two numbers in the rules were chosen from measurement, not taste.** The winner takes **60%** of
+a region's bounty and 40% stays as a standing prize — with a 100% payout, the region you just took
+has a prize of zero, every later attack is −EV, and the world freezes (it did, on 24 Sep, the
+moment our agents started doing the arithmetic honestly). And capture lowers strength but never
+below 10 — with no floor, a region that keeps changing hands slides to an 85%-success shooting
+gallery (Vhal'Mor: 20 → 0).
+
 ## Dice: why the old scheme was not ported
 
 A reveal whose party also picks the secret is a search problem, not a commitment. Here the

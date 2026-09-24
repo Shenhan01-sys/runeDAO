@@ -13,7 +13,7 @@ submission — these are snapshots with a timestamp, not constants.
 | Agents broadcast their own transactions | `npm run agent:once` from three agent EOAs, platform key uninvolved | 6 transactions, one per commit/resolve |
 | Reputation moves **down** on chain | same run; `show-world` reads `getAgent` | agent C: 500 → **460**, tier 5 → 4 after its first failure |
 | A failed raid becomes a bounty | `show-world` | region 2 pool `0` → **0.0003 BNB**, strength 20 → 21, owner still neutral |
-| A won raid pays the attacker, not the loser | `test_...` + on chain | regions 0 and 1 changed owner to factions 2 and 1; their pools returned to 0 |
+| A won raid pays the attacker, not the loser | `test_invariantsHoldForEveryObservedOutcome` + `npm run world` | regions changed hands as expected; the attacker's treasury gained exactly `pool × 60%`, and the residual stayed on the region |
 | The dice are the documented formula | `test_worldRollsMatchTheDocumentedFormula` recomputes `keccak(secret ‖ blockhash(target)) % 20 + 1` | matches the emitted `roll`; 23 live rolls so far: 12, 18, 4, 14, 7, 2, 16, 15, 3, 2, 12, 13, 2, 13, 13, 6, 10, 8, 2, 5, … |
 | **Both** action types actually reach the chain | `agent/history/actions.jsonl` + `npm run world` | 21 RAID and **2 ENTRENCH**; both entrenched rolls raised strength as the rule says (roll 8 → +2 on region 0; roll 13 → +3 on region 3). The first 20 world actions were **100% RAID, 0% ENTRENCH** — a policy ordering bug, fixed by defending weak owned regions first (`DEFEND_BELOW = 10`); see the note below on how we know |
 | Reputation keeps falling on real failures | `npm run world` reads `getAgent` | agent C: 500 → 460 → 380 → **350**, tier 5 → 4 → **3**, 5 failures in 7 actions |

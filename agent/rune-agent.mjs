@@ -178,7 +178,7 @@ export function decide({ agent, factionId, regions, faction, caps, gas, capRAID,
         action: "RAID",
         regionId: r.id,
         cost: caps.raidCost,
-        reason: `P(menang)=${p.toFixed(2)}, hadiah ${r.pool} vs biaya ${caps.raidCost} -> EV +${ev} wei`,
+        reason: `P(menang)=${p.toFixed(2)}, hadiah ${r.pool} + nilai pegang ${HOLD_VALUE} vs biaya ${caps.raidCost} -> EV +${ev} wei`,
       };
     }
 
@@ -210,10 +210,23 @@ export function winProb(region) {
   return (21 - t) / 20;
 }
 
-/// EV sebuah raid, dalam wei: P(menang) x hadiah wilayah dikurangi biaya aksi.
-/// Kontrak menjaga `threshold` di 4..19, jadi P selalu di antara 0,10 dan 0,85.
+/// EV sebuah raid, dalam wei:   P(menang) x (hadiah + HOLD_VALUE) - biaya
+///
+/// `HOLD_VALUE` BUKAN aturan kontrak dan bukan fakta chain: itu harga yang kebijakan ini
+/// pasang untuk "memegang satu wilayah", dan ia ikut tertulis di setiap alasan keputusan
+/// supaya bisa dibantah orang. Ia perlu ada karena tanpanya wilayah tanpa hadiah selalu -EV,
+/// dan satu-satunya cara membuat penaklukan bernilai adalah menunggu orang lain kalah lebih
+/// dulu — persis yang membekukan dunia pada 24 Sep.
+///
+/// Batasnya juga terlihat: HOLD_VALUE seorang (wilayah kosong, ambang 19 -> P=0,10 memberi
+/// 0,10 x 0,0005 = 0,00005 < biaya 0,0003) tidak cukup untuk membuat fortress layak diserang.
+/// Hadiah yang cukup besar tentu masih bisa — dan memang itu yang kita mau: orang berdesakan
+/// di tempat yang ada uangnya, bukan di tempat yang paling mudah.
+export const HOLD_VALUE = 500000000000000n; // 0,0005 BNB ~ 1,7x biaya satu raid
+
 export function raidEV(region, caps) {
-  return BigInt(Math.round(winProb(region) * Number(region.pool))) - BigInt(caps.raidCost);
+  const prize = BigInt(region.pool) + HOLD_VALUE;
+  return BigInt(Math.round(winProb(region) * Number(prize))) - BigInt(caps.raidCost);
 }
 
 /**

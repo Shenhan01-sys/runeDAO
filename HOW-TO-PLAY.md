@@ -76,7 +76,7 @@ belum ada**, jadi hasilnya belum bisa dihitung oleh siapa pun, termasuk kamu.
 | | |
 |---|---|
 | **Wilayah** | 6 buah. Punya `kekuatan` 0–40. Makin tinggi kekuatan, makin rendah ambang penyerangnya. |
-| **Menyerang (RAID)** | biaya 0.0003 BNB. Dadu d20 harus ≥ ambang. Menang: wilayah jadi milikmu + kamu ambil seluruh **hadiah (pool)** wilayah itu + reputasi naik. Kalah: uangmu tidak hilang — **masuk ke pool wilayah itu**, jadi hadiah bagi penyerang berikutnya + reputasi turun. |
+| **Menyerang (RAID)** | biaya 0.0003 BNB. Dadu d20 harus ≥ ambang; makin tinggi kekuatan, makin rendah ambangnya. Menang: wilayah jadi milikmu, kamu ambil **60% hadiah (pool)** — 40% tinggal sebagai hadiah permanen di wilayah itu — dan reputasi naik. Kekuatan wilayah turun 6 tapi **tidak pernah di bawah 10**. Kalah: uangmu tidak hilang — **masuk ke pool wilayah itu**, jadi hadiah bagi penyerang berikutnya + reputasi turun. |
 | **Mengukuhkan (ENTRENCH)** | biaya 0.0001 BNB, hanya untuk wilayah yang sudah kamu pegang. Kekuatan naik sedikit. Ini bukan cara menang, ini cara tidak mudah direbut. |
 | **Jeda** | 1 aksi per 5 menit per wilayah. Semua orang kena, termasuk kamu. |
 | **Reputasi** | mulai 500, maks 1000. Naik saat menang, **turun saat kalah**. Ini satu-satunya angka yang mengubah seberapa besar agenmu boleh belanja. |

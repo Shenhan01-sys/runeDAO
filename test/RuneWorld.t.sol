@@ -315,9 +315,27 @@ contract RuneWorldTest is Test {
 
     /// Menagih aturan main pada SETIAP hasil yang benar-benar terjadi, bukan pada hasil
     /// yang kita pilih. 40 raid dari dua agen berbeda cukup untuk menabrak kedua cabang.
+    /// @notice Angka kebijakan yang mengubah ekonomi dunia. Naik-turunnya harus jadi
+    ///         keputusan yang ditulis orang, bukan efek samping suntingan.
+    function test_policyConstantsAreTheAdvertisedOnes() public view {
+        assertEq(world.LOOT_SHARE_PERCENT(), 60, "pemenang mengambil 60% hadiah");
+        assertEq(uint256(world.MIN_STRENGTH()), 10, "lantai kekuatan");
+        assertEq(uint256(world.MAX_STRENGTH()), 40, "langit-langit kekuatan");
+        assertEq(uint256(world.RAID_COST()), 300000000000000, "0,0003 BNB per raid");
+        assertEq(uint256(world.ENTRENCH_COST()), 100000000000000, "0,0001 BNB per entrench");
+        assertEq(uint256(world.regionCooldown()), 300, "300 detik");
+        assertEq(uint256(world.reputationGain()), 25, "naik 25");
+        assertEq(uint256(world.reputationLoss()), 40, "turun 40");
+    }
+
     function test_invariantsHoldForEveryObservedOutcome() public {
         bool sawSuccess = false;
         bool sawFailure = false;
+        // Penjaga cakupan: aturan jarahan 60% + lantai kekuatan hanya ditagih di cabang
+        // "sukses dengan hadiah > 0". Kalau cabang itu tidak pernah terjadi, tes ini akan
+        // hijau tanpa menguji apa pun - jadi keberuntungannya harus dinyatakan, bukan
+        // diandaikan.
+        bool sawLootWithBounty = false;
 
         for (uint256 i = 0; i < 40; i++) {
             address agent_ = i % 2 == 0 ? agentA : agentB;
@@ -340,13 +358,31 @@ contract RuneWorldTest is Test {
                 // sebagai persamaan, bukan ">0": persamaan tidak bisa puas kalau uangnya
                 // hilang separuh.
                 assertEq(uint256(a.owner), uint256(faction), "wilayah jatuh ke pihak yang salah");
+                // Pemenang mengambil LOOT_SHARE_PERCENT; sisanya TETAP jadi hadiah wilayah,
+                // supaya penaklukan berikutnya masih punya alasan (dunia membeku tanpa ini).
+                if (before_.pool > 0) {
+                    sawLootWithBounty = true;
+                }
+                // ANGKA DITETAPKAN, tidak dibaca dari kontrak: versi pertama tes ini memakai
+                // world.LOOT_SHARE_PERCENT() di kedua sisi persamaan, jadi mengubah konstanta
+                // jadi 100 tetap hijau - tes tautologis yang hanya membuktikan kode konsisten
+                // dengan dirinya sendiri. Ketertangkapannya diverifikasi dengan mutasi.
+                uint256 loot = (uint256(before_.pool) * 60) / 100;
                 assertEq(
                     uint256(treasuryAfter),
-                    uint256(treasuryBefore) - uint256(world.RAID_COST()) + uint256(before_.pool),
+                    uint256(treasuryBefore) - uint256(world.RAID_COST()) + loot,
                     "buku kas pemenang tidak cocok"
                 );
-                assertEq(uint256(world.getRegion(REGION).pool), 0, "pool tertinggal di wilayah");
-                assertEq(uint256(a.strength), uint256(before_.strength > 6 ? before_.strength - 6 : 0));
+                assertEq(
+                    uint256(world.getRegion(REGION).pool),
+                    uint256(before_.pool) - loot,
+                    "40% hadiah harus tertinggal di wilayah"
+                );
+                assertEq(
+                    uint256(a.strength),
+                    uint256(before_.strength > 16 ? before_.strength - 6 : 10),
+                    "kekuatan harus berhenti di lantai 10, bukan meluncur ke nol"
+                );
             } else {
                 sawFailure = true;
                 assertEq(uint256(a.owner), uint256(before_.owner), "wilayah berpindah padahal kalah");
@@ -363,6 +399,7 @@ contract RuneWorldTest is Test {
         }
 
         assertTrue(sawSuccess && sawFailure, "40 raid tidak menghasilkan kedua cabang - distribusi dicurigai");
+        assertTrue(sawLootWithBounty, "tidak pernah ada keberhasilan di wilayah berhadiah: aturan jarahan tidak teruji");
     }
 
     /// Roll harus bisa dihitung ulang dari data publik: itu isi "bisa diaudit tanpa kami".
