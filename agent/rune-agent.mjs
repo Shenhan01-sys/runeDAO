@@ -52,6 +52,9 @@ const HORIZON_MAX = 20;
 // "sudah tidak bisa dibuka" diambil sebelum benar-benar mentok.
 const BLOCKHASH_READ_WINDOW = 250;
 const TICK_SECONDS = Number(process.env.TICK_SECONDS ?? 420);
+// Kalau semua agen abstain, mundur sampai maksimum 1 jam: lebih baik sedikit tick yang
+// berarti daripada riwayat penuh alasan yang sama.
+const IDLE_MAX_MS = 3_600_000;
 const GAS_PER_ACTION = 740000n;
 // Ambang "cukup lemah untuk dipertahankan". 10 dipilih dari data: wilayah yang jatuh di
 // bawah itu punya ambang raid <= 9 dan cenderung berpindah tangan tiap tick.
@@ -782,12 +785,18 @@ async function main() {
   // tanpa-manusia justru bahan demo utamanya. Jadi: tangkap, catat, ganti endpoint, mundur
   // eksponensial, lanjut. Yang boleh mematikan proses hanya kesalahan konfigurasi.
   let misses = 0;
+  let idle = 0;
   for (;;) {
     const t0 = Date.now();
+    let onlyAbstains = false;
     try {
-      await tick({ client, rpcUrl, E, WORLD, REGISTRY, TREASURY });
+      const results = await tick({ client, rpcUrl, E, WORLD, REGISTRY, TREASURY });
       if (misses > 0) console.log(`pulih setelah ${misses} tick gagal`);
       misses = 0;
+      // Dunia beku bukan alasan untuk menuliskan alasan yang sama setiap 6 menit. Loop lama
+      // menghasilkan 90 catatan abstain identik (terukur, log 24 Sep) yang membuat riwayat
+      // terlihat sibuk padahal tidak ada yang terjadi - dan itu menenggelamkan sinyal nyata.
+      onlyAbstains = results.length > 0 && results.every((r) => r?.abstain === true);
     } catch (err) {
       misses += 1;
       const msg = String(err?.shortMessage ?? err?.message ?? err).split("\n")[0].slice(0, 160);
@@ -800,8 +809,15 @@ async function main() {
       }
     }
     if (once) break;
-    const backoff = Math.min(600_000, 30_000 * 2 ** Math.min(misses, 4));
-    const wait = misses > 0 ? backoff : Math.max(0, TICK_SECONDS * 1000 - (Date.now() - t0));
+    let wait = Math.max(0, TICK_SECONDS * 1000 - (Date.now() - t0));
+    if (misses > 0) {
+      wait = Math.min(600_000, 30_000 * 2 ** Math.min(misses, 4));
+    } else if (onlyAbstains) {
+      idle = Math.min(IDLE_MAX_MS, (idle || TICK_SECONDS * 1000) * 2);
+      wait = idle;
+    } else {
+      idle = 0;
+    }
     await new Promise((r) => setTimeout(r, wait));
   }
 }

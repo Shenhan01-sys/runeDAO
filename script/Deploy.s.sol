@@ -32,7 +32,9 @@ contract Deploy is Script {
     ///      tidak dibalikkan orang berikutnya tanpa sadar.
     uint256 internal constant GUARDIAN_STIPEND = 0.0004 ether;
     uint256 internal constant AGENT_STIPEND = 0.0002 ether;
-    uint256 internal constant FACTION_DEPOSIT = 0.002 ether;
+    uint256 internal constant FACTION_DEPOSIT = 0.0015 ether;
+    /// @notice Hadiah awal tiap wilayah = 2x biaya satu raid. Lihat alasannya di RuneWorld.seedRegion.
+    uint96 internal constant BASE_BOUNTY = 0.0004 ether;
 
     string[6] internal REGIONS = ["Vhal'Mor", "Abu Kelabu", "Rawa Gema", "Pintu Garam", "Tulang Raja", "Simpul Asing"];
 
@@ -77,7 +79,7 @@ contract Deploy is Script {
                 console.log("  region sudah ditabur, dilewati: id");
                 console.logUint(i);
             } catch {
-                world.seedRegion(i, REGIONS[i], 20);
+                world.seedRegion{value: BASE_BOUNTY}(i, REGIONS[i], 20, BASE_BOUNTY);
                 console.log("  seeded region id / nama:");
                 console.logUint(i);
                 console.logString(REGIONS[i]);

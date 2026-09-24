@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {RuneRegistry} from "../contracts/RuneRegistry.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {RuneTreasury} from "../contracts/RuneTreasury.sol";
 import {RuneWorld} from "../contracts/RuneWorld.sol";
 
@@ -39,6 +40,7 @@ contract RuneWorldTest is Test {
     bytes32 internal constant TRANSCRIPT = bytes32(uint256(0x715));
 
     uint256 internal constant AHEAD = 3;
+    uint96 internal constant BASE_BOUNTY = 0.0004 ether;
 
     struct Act {
         bytes32 kind;
@@ -63,9 +65,12 @@ contract RuneWorldTest is Test {
         vm.prank(platform);
         registry.setWorld(address(world));
 
+        // seedRegion sekarang MEMBAWA ETH (hadiah awal), jadi penaburnya harus punya saldo.
+        // Kebutuhannya 6 x hadiah + sedikit untuk biaya; angka di bawah sengaja lebih besar.
+        vm.deal(platform, 1 ether);
         for (uint96 i = 0; i < world.REGION_COUNT(); i++) {
             vm.prank(platform);
-            world.seedRegion(i, "Vhal'Mor", 20);
+            world.seedRegion{value: BASE_BOUNTY}(i, "Vhal'Mor", 20, BASE_BOUNTY);
         }
 
         _openFaction(guardianA, agentA, FACTION_A);
@@ -127,10 +132,32 @@ contract RuneWorldTest is Test {
 
     // ---------------------------------------------------------------- genesis
 
+    /// Wilayah baru harus lahir dengan hadiah: tanpa itu EV menyerang = P*0 - biaya, selalu
+    /// negatif, dan dunia beku sejak menit pertama - persis yang terjadi pada musim 1.
+    function test_regionIsSeededWithItsBounty() public {
+        RuneWorld.Region memory r = world.getRegion(5);
+        assertEq(uint256(r.pool), uint256(BASE_BOUNTY), "hadiah awal harus tertabung di wilayah");
+        assertGe(address(world).balance, uint256(BASE_BOUNTY) * uint256(world.REGION_COUNT()), "uangnya nyata ada di world");
+    }
+
+    function test_seedRejectsWrongBountyValue() public {
+        // Semua wilayah sudah ditabur setUp; memakai salah satunya akan menguji
+        // RegionAlreadySeeded, bukan BountyMismatch - dan tesnya tetap hijau-ish kalau
+        // kita tidak membaca error mana yang benar-benar datang.
+        RuneWorld fresh = new RuneWorld(address(registry), address(treasury));
+        // `fresh` di-deploy dari dalam kontrak test, jadi owner-nya address(this) - mem-prank
+        // platform justru menghasilkan OwnableUnauthorizedAccount dan BountyMismatch tidak
+        // pernah teruji. Ini persis jenis "tes lulus karena alasan yang salah" yang sudah
+        // tiga kali muncul di sesi ini.
+        vm.deal(address(this), 1 ether);
+        vm.expectRevert(RuneWorld.BountyMismatch.selector);
+        fresh.seedRegion{value: 1 wei}(0, "salah bayar", 20, BASE_BOUNTY);
+    }
+
     function test_seedIsOneShot() public {
         vm.prank(platform);
         vm.expectRevert(RuneWorld.RegionAlreadySeeded.selector);
-        world.seedRegion(REGION, "lagi", 20);
+        world.seedRegion{value: BASE_BOUNTY}(REGION, "lagi", 20, BASE_BOUNTY);
     }
 
     function test_rejectSeedOutsideWorld() public {
@@ -139,13 +166,17 @@ contract RuneWorldTest is Test {
         uint96 outside = world.REGION_COUNT();
         vm.prank(platform);
         vm.expectRevert(RuneWorld.RegionOutOfIndex.selector);
-        world.seedRegion(outside, "di luar", 20);
+        world.seedRegion{value: BASE_BOUNTY}(outside, "di luar", 20, BASE_BOUNTY);
     }
 
     function test_rejectSeedByNonOwner() public {
-        vm.prank(address(0xEE));
-        vm.expectRevert();
-        world.seedRegion(3, "curian", 20);
+        address thief = address(0xEE);
+        // Tanpa saldo, pemindahan ETH gagal SEBELUM kontrak ikut dievaluasi dan forge
+        // melaporkannya sebagai "revert di depth yang salah" - bukan sebagai onlyOwner.
+        vm.deal(thief, 1 ether);
+        vm.prank(thief);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, thief));
+        world.seedRegion{value: BASE_BOUNTY}(3, "curian", 20, BASE_BOUNTY);
     }
 
     // ---------------------------------------------------------------- gerbang commit
@@ -292,6 +323,7 @@ contract RuneWorldTest is Test {
 
     function test_raidPaysExactlyItsCostThroughTheGate() public {
         RuneTreasury.Faction memory before_ = treasury.getFaction(FACTION_A);
+        uint256 worldBefore = address(world).balance;
         assertEq(uint256(before_.spends), 0);
 
         Act memory a = _raid(agentA, REGION, bytes32("bayar"));
@@ -300,7 +332,12 @@ contract RuneWorldTest is Test {
         assertEq(uint256(after_.spends), 1);
         assertEq(uint256(a.cost), uint256(world.RAID_COST()));
         assertEq(uint256(before_.balance) - uint256(after_.balance), uint256(world.RAID_COST()));
-        assertEq(address(world).balance, uint256(world.RAID_COST()), "dana mendarat di world");
+        // Selisih, bukan saldo absolut: world kini memegang hadiah awal 6 wilayah, jadi
+        // angka absolut akan selalu salah dan godaan untuk "mengoreksi" tesnya adalah
+        // cara cepat membuat tes yang tidak menguji apa pun.
+        assertEq(
+            address(world).balance - worldBefore, uint256(world.RAID_COST()), "selisih kas world = satu biaya raid"
+        );
     }
 
     /// Peristiwanya harus menyebut hash transaksi aksi, dan transcript agen ikut tercatat -
@@ -518,7 +555,9 @@ contract RuneWorldTest is Test {
     /// Uang tidak boleh berpindah saat agen kabur: biaya aksi dibayar di resolve, jadi
     /// abandonment tidak menyentuh kas — dan pool wilayah tidak bertambah.
     function test_abandonMovesNoMoney() public {
-        RuneTreasury.Faction memory before_ = treasury.getFaction(FACTION_A);
+        RuneTreasury.Faction memory facBefore = treasury.getFaction(FACTION_A);
+        uint256 poolBefore = uint256(world.getRegion(REGION).pool);
+        uint256 worldBalBefore = address(world).balance;
         bytes32 secret = bytes32("uang tidak gerak");
         uint32 target = _openCommitOnly(agentA, REGION, RAID, secret);
         vm.roll(uint64(target) + 257);
@@ -526,10 +565,13 @@ contract RuneWorldTest is Test {
         vm.prank(agentA);
         world.abandon();
 
-        RuneTreasury.Faction memory after_ = treasury.getFaction(FACTION_A);
-        assertEq(uint256(after_.balance), uint256(before_.balance), "abandon tidak boleh menarik kas");
-        assertEq(after_.spends, before_.spends);
-        assertEq(uint256(world.getRegion(REGION).pool), uint256(before_.spends) * 0, "pool tetap nol");
+        RuneTreasury.Faction memory facAfter = treasury.getFaction(FACTION_A);
+        assertEq(uint256(facAfter.balance), uint256(facBefore.balance), "abandon tidak boleh menarik kas");
+        assertEq(facAfter.spends, facBefore.spends);
+        // Yang ditagih "tidak ada yang berpindah", bukan "pool nol": tiap wilayah memang lahir
+        // membawa hadiah awal. Menulis assertEq(x, x) di sini akan hijau tanpa menguji apa pun.
+        assertEq(uint256(world.getRegion(REGION).pool), poolBefore, "hadiah wilayah tidak berubah");
+        assertEq(address(world).balance, worldBalBefore, "kas world tidak bergerak");
     }
 
     /// Commit yang dibuang tidak bisa dibuka lagi setelahnya.

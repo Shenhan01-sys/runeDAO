@@ -15,6 +15,8 @@ import {RuneWorld} from "../contracts/RuneWorld.sol";
 contract Seed is Script {
     string[6] internal NAMES = ["Vhal'Mor", "Abu Kelabu", "Rawa Gema", "Pintu Garam", "Tulang Raja", "Simpul Asing"];
     uint32 internal constant START_STRENGTH = 20;
+    /// @notice Hadiah awal tiap wilayah; tanpa ini wilayah baru berhadiah 0 dan EV menyerang selalu negatif.
+    uint96 internal constant BASE_BOUNTY = 0.0004 ether;
 
     function run() external {
         RuneWorld world = RuneWorld(payable(vm.envAddress("WORLD_ADDRESS")));
@@ -37,7 +39,7 @@ contract Seed is Script {
                 continue;
             }
             vm.startBroadcast(key);
-            world.seedRegion(i, NAMES[i], START_STRENGTH);
+            world.seedRegion{value: BASE_BOUNTY}(i, NAMES[i], START_STRENGTH, BASE_BOUNTY);
             vm.stopBroadcast();
             console.log("  ditabur: region");
             console.logUint(i);

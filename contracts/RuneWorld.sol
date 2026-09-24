@@ -97,7 +97,7 @@ contract RuneWorld is Ownable {
     uint24 public reputationLoss = 40;
     uint32 public regionCooldown = 300;
 
-    event RegionSeeded(uint96 indexed regionId, string name, uint32 strength);
+    event RegionSeeded(uint96 indexed regionId, string name, uint32 strength, uint96 bounty);
     event RollCommitted(
         address indexed agent,
         uint96 indexed regionId,
@@ -142,6 +142,7 @@ contract RuneWorld is Ownable {
     error ZeroAddress();
     error RevealWindowOpen();
     error NoPendingAbandon();
+    error BountyMismatch();
 
     constructor(address registry_, address treasury_) Ownable(msg.sender) {
         if (registry_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
@@ -151,14 +152,27 @@ contract RuneWorld is Ownable {
 
     // ------------------------------------------------------------------ genesis
 
-    function seedRegion(uint96 regionId, string calldata name, uint32 strength) external onlyOwner {
+    /// @notice Menabur satu wilayah beserta HADIAH AWALNYA.
+    /// @dev Hadiah awal itu perlu dan bukan hiasan: tanpa hadiah, EV menyerang wilayah baru
+    ///      adalah `P x 0 - biaya` = selalu negatif, jadi tidak ada serangan pertama yang
+    ///      masuk akal dan dunia lahir beku. Inilah persis yang kami ukur pada 24 Sep, setelah
+    ///      kebijakan agen berhenti menebak-nebak: 90 tick berturut-turut berisi abstain.
+    ///      `msg.value` harus sama persis dengan `bounty` supaya kas world tidak pernah
+    ///      memegang dana yang tidak bisa ditrace ke satu wilayah.
+    function seedRegion(uint96 regionId, string calldata name, uint32 strength, uint96 bounty)
+        external
+        payable
+        onlyOwner
+    {
         if (regionId >= REGION_COUNT) revert RegionOutOfIndex();
         Region storage r = _regions[regionId];
         if (r.seeded) revert RegionAlreadySeeded();
+        if (msg.value != bounty) revert BountyMismatch();
         r.name = name;
         r.strength = strength > MAX_STRENGTH ? MAX_STRENGTH : strength;
+        r.pool = bounty;
         r.seeded = true;
-        emit RegionSeeded(regionId, name, r.strength);
+        emit RegionSeeded(regionId, name, r.strength, bounty);
     }
 
     // ------------------------------------------------------------------ langkah 1
