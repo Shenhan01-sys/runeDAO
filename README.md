@@ -133,6 +133,15 @@ npm run world               # read-only: regions, reputations, and each agent's 
 npm run readback            # asserts the authority chain from live state on chain 97
 npm run agent:once          # one unattended turn: 3 agents, 6 transactions
 npm run agent               # keep the world moving (TICK_SECONDS, default 420)
+npm run health              # is it actually still working? exit 1 if the loop died or went silent
+```
+
+`npm run health` exists because the loop stopped three times in two days and **nothing reported
+it**: a dead process leaves the repo green and the tests passing while the one thing we cannot buy
+back — unattended history — silently stops accumulating. It checks two things (live lock PID, and
+ledger freshness within 4 ticks) and exits non-zero, so it can be wired to anything that runs
+periodically. It does not run itself: an alarm nobody schedules is a rumour.
+
 ```
 
 Layout: `contracts/` (3) · `test/` (3 files, 81 tests) · `script/` (Deploy, Seed, Fund,

@@ -15,7 +15,8 @@
     "agent": "node agent/rune-agent.mjs",
     "agent:once": "node agent/rune-agent.mjs --once",
     "world": "node agent/show-world.mjs",
-    "page": "node tools/build-page.mjs"
+    "page": "node tools/build-page.mjs",
+    "health": "node tools/agent-health.mjs"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
