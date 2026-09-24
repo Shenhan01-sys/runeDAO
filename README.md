@@ -134,6 +134,7 @@ npm run readback            # asserts the authority chain from live state on cha
 npm run agent:once          # one unattended turn: 3 agents, 6 transactions
 npm run agent               # keep the world moving (TICK_SECONDS, default 420)
 npm run health              # is it actually still working? exit 1 if the loop died or went silent
+npm run lint:docs           # fences, dead links, stale numbers, banned claims
 ```
 
 `npm run health` exists because the loop stopped three times in two days and **nothing reported
@@ -141,6 +142,12 @@ it**: a dead process leaves the repo green and the tests passing while the one t
 back — unattended history — silently stops accumulating. It checks two things (live lock PID, and
 ledger freshness within 4 ticks) and exits non-zero, so it can be wired to anything that runs
 periodically. It does not run itself: an alarm nobody schedules is a rumour.
+
+`npm run lint:docs` checks the things a compiler cannot see: unbalanced code fences (one of mine
+swallowed a whole paragraph into a code block on GitHub while looking fine in a terminal), dead
+relative links, `npm run` names that do not exist in `package.json`, numbers that drifted out of
+date, and claims we decided not to make. It was written after the third doc-number correction of
+the week, on the theory that a rule that runs is worth more than an intention.
 
 Layout: `contracts/` (3) · `test/` (89 tests — see **Run it** for the authoritative count,
 which is why none is repeated here) · `script/` (Deploy, Seed, Fund, ReplaceWorld, Readback) ·
