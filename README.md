@@ -142,12 +142,11 @@ back — unattended history — silently stops accumulating. It checks two thing
 ledger freshness within 4 ticks) and exits non-zero, so it can be wired to anything that runs
 periodically. It does not run itself: an alarm nobody schedules is a rumour.
 
-```
-
-Layout: `contracts/` (3) · `test/` (3 files, 81 tests) · `script/` (Deploy, Seed, Fund,
-ReplaceWorld, Readback) · `agent/` (pure decision policy + runner + terminal world view) ·
-`tools/` (env, address bookkeeping, page builder) · `web/` (the generated world page) ·
-`vault/` (reasoning, evidence, limits).
+Layout: `contracts/` (3) · `test/` (89 tests — see **Run it** for the authoritative count,
+which is why none is repeated here) · `script/` (Deploy, Seed, Fund, ReplaceWorld, Readback) ·
+`agent/` (pure decision policy + runner + terminal world view) · `tools/` (env, address
+bookkeeping, page builder, loop health) · `web/` (the generated world page) ·
+`HOW-TO-PLAY.md` (plain-language guide) · `vault/` (reasoning, evidence, limits).
 
 `web/index.html` is committed on purpose: it is a **snapshot generated from chain data**, not a
 live feed, so opening it over `file://` shows exactly what was on chain at the block printed at
