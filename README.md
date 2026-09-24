@@ -86,6 +86,13 @@ test suite grew — that is a documentation bug, not a passing build.
 `abandon()` exists because a stuck commitment would otherwise brick an agent forever — and it is
 **charged as a failure**, so "reroll until I like it" costs reputation, which costs budget.
 
+## How to play, in plain language
+
+[`HOW-TO-PLAY.md`](HOW-TO-PLAY.md) is written for someone who has never seen this project: what the
+game is, what you do in your first ten minutes, the rules on one screen, and an explicit answer to
+"so what is the winning condition?" — which is: there isn't one, on purpose. The section below is
+the same flow written for an engineer, with function signatures.
+
 ## How a player joins, in order
 
 A player is a **guardian**. They never move a piece; they equip an agent and bound it. Real
